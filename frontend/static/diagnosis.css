@@ -1,0 +1,135 @@
+/* 故障问答样式集中在此，保留隐患页面的原有布局。 */
+#diagnosisView { --text-2: #b6c5d8; --muted: #8b9cb3; }
+#diagnosisView .chat-panel { background: radial-gradient(ellipse at 45% 0, #10203966, transparent 55%); }
+#diagnosisView .chat-scroll { padding-top: 32px; }
+#diagnosisView .intro-card { gap: 18px; margin-top: 6vh; }
+#diagnosisView .intro-card h2 { font-size: 27px; font-weight: 600; }
+#diagnosisView .intro-card > div > p:not(.overline) { font-size: 14px; line-height: 1.9; }
+#diagnosisView .suggestion { border-color: #27384c; background: #0d1a2b; padding: 16px 18px; }
+#diagnosisView .suggestion strong { font-size: 15px; font-weight: 550; margin-top: 7px; }
+#diagnosisView .suggestion small { font-size: 12px; color: #91a4bc; }
+#diagnosisView .suggestion span { font-size: 11px; letter-spacing: .06em; }
+#diagnosisView .user-bubble { font-size: 15px; line-height: 1.8; background: #19365b; border-color: #35547b; box-shadow: none; max-width: 88%; }
+#diagnosisView .user-meta { font-size: 11px; }
+#diagnosisView .agent-run { padding-left: 0; margin-top: 28px; }
+#diagnosisView .agent-run::before { display: none; }
+#diagnosisView .run-label { font-size: 12px; color: #9fb1c9; margin-bottom: 18px; gap: 9px; }
+#diagnosisView .run-label i { width: 7px; height: 7px; box-shadow: 0 0 0 4px #438cff14; }
+#diagnosisView .agent-run[data-status="completed"] .run-label i { background: #57c6ab; box-shadow: 0 0 0 4px #57c6ab12; }
+#diagnosisView .agent-run[data-status="error"] .run-label i { background: #ed8995; box-shadow: 0 0 0 4px #ed899512; }
+#diagnosisView .agent-run[data-status="needs_input"] .run-label i,
+#diagnosisView .agent-run[data-status="incomplete"] .run-label i { background: #ddba80; }
+#diagnosisView .agent-run[data-status="cancelled"] .run-label i { background: #8b9cb3; }
+#diagnosisView .run-duration { color: #7f93ad; font-size: 11px; margin-top: 18px; }
+
+/* 计划、分析、证据评估各有标签，过程文字弱于最终回答。 */
+#diagnosisView .agent-phase-message { margin: 12px 0; padding: 12px 15px; border-radius: 10px; border: 1px solid transparent; background: #101d2d70; }
+#diagnosisView .agent-phase-indicator { margin-bottom: 7px; gap: 8px; }
+#diagnosisView .agent-phase-indicator strong { font-size: 12px; font-weight: 600; color: #aabed7; }
+#diagnosisView .agent-phase-indicator .phase-symbol { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; background: #253a545e; color: #9fbbdf; font: 15px/1 system-ui; }
+#diagnosisView .agent-phase-content { color: #aabbd0; font-size: 13px; line-height: 1.85; overflow-wrap: anywhere; }
+#diagnosisView [data-phase="plan"] { background: #14264080; border-color: #2a446366; }
+#diagnosisView [data-phase="plan"] .agent-phase-indicator strong { color: #a8caff; }
+#diagnosisView [data-phase="reflection"] .phase-symbol { background: #20574b40; color: #80c7b5; }
+#diagnosisView [data-phase="reflection"] .agent-phase-indicator strong { color: #9ecbbc; }
+#diagnosisView [data-phase="question"] { background: #42341940; border-color: #8d6b3040; }
+#diagnosisView [data-phase="question"] .agent-phase-indicator strong { color: #e4c58d; }
+#diagnosisView [data-phase="error"] { background: #51273438; border-color: #94505e55; }
+#diagnosisView [data-phase="error"] .agent-phase-indicator strong { color: #f0a3ae; }
+#diagnosisView [data-phase="notice"] { background: transparent; padding-block: 5px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+#diagnosisView [data-phase="notice"] .agent-phase-indicator { margin: 0; }
+#diagnosisView [data-phase="notice"] .agent-phase-content { color: #8398b2; font-size: 12px; }
+
+/* 工具卡片保留可折叠参数、返回和原文入口。 */
+#diagnosisView .native-tool { margin: 14px 0; border: 1px solid #2a3c52; border-radius: 12px; background: #0e1b2b; box-shadow: 0 4px 16px #0000000d; }
+#diagnosisView .native-tool::before { display: none; }
+#diagnosisView .native-tool .step-header { padding: 14px 16px; min-height: 52px; border: 0; gap: 10px; }
+#diagnosisView .native-tool .step-header strong { font: 500 13px/1.6 Consolas, "Microsoft YaHei", monospace; min-width: 0; }
+#diagnosisView .tool-category { font: 600 10px/1.4 system-ui; letter-spacing: .06em; color: #a9c6ee; border: 1px solid #46648770; background: #253c5b66; border-radius: 5px; padding: 4px 6px; flex-shrink: 0; }
+#diagnosisView .native-tool .step-status { white-space: nowrap; font-size: 11px; border-radius: 20px; padding: 4px 8px; background: #397cac18; color: #97c9f2; }
+#diagnosisView .native-tool[data-status="completed"] .step-status { color: #8ad4bd; background: #2889671a; }
+#diagnosisView .native-tool[data-status="error"] .step-status { color: #efa2ac; background: #a943561a; }
+#diagnosisView .native-tool[data-status="interrupted"] .step-status { color: #bdc7d4; background: #7e8a9a18; }
+#diagnosisView .native-tool.tool-failed { border-color: #87455380; }
+#diagnosisView .native-tool details { border-top: 1px solid #26374a; padding: 12px 16px; }
+#diagnosisView .native-tool summary { font-size: 12px; line-height: 1.7; color: #adbed2; }
+#diagnosisView .native-tool summary::marker { color: #7189a6; }
+#diagnosisView .native-tool summary span { color: #8196b1; margin-left: 8px; font-size: 11px; }
+#diagnosisView .native-tool details[open] summary { color: #bdd7f8; }
+#diagnosisView .native-tool pre { margin: 10px 0 0; font-size: 12px; line-height: 1.8; border-color: #26374a; background: #091421; }
+#diagnosisView .artifact-controls small { font-size: 10px; color: #7e93ac; }
+#diagnosisView .artifact-controls button, #diagnosisView .artifact-controls a { color: #b0c9e9; background: #15253a; border-color: #30455e; text-decoration: none; }
+
+/* 正文 15px，过程 13px，辅助标签 11–12px。 */
+#diagnosisView .agent-final-response { margin: 24px 0 18px; padding: 20px 0 0; border-top: 1px solid #31445c; color: #d4dfed; font-size: 15px; line-height: 1.9; }
+#diagnosisView .answer-heading { display: flex; gap: 9px; align-items: center; color: #edf4ff; font-size: 13px; font-weight: 600; margin-bottom: 16px; }
+#diagnosisView .answer-heading span { color: #9bbcff; font-size: 19px; }
+/* 兼容浏览器中此前保存的回答 HTML。 */
+#diagnosisView .agent-final-response.markdown::before { content: "✦  回答"; display: block; margin-bottom: 16px; color: #c5d9f5; font-size: 13px; font-weight: 600; }
+#diagnosisView .answer-body { font-size: 15px; line-height: 1.9; color: #d4dfed; }
+#diagnosisView .agent-final-response h2 { margin: 22px 0 10px; font-size: 19px; font-weight: 600; line-height: 1.5; }
+#diagnosisView .agent-final-response h3 { margin: 20px 0 8px; font-size: 16px; font-weight: 600; }
+#diagnosisView .agent-final-response p { margin: 12px 0; }
+#diagnosisView .agent-final-response li { margin: 7px 0; padding-left: 3px; }
+#diagnosisView .markdown code { font-size: 13px; }
+#diagnosisView .markdown pre { padding: 16px 18px; border: 1px solid #293c54; background: #0a1523; border-radius: 10px; }
+#diagnosisView .markdown pre code { padding: 0; border: 0; background: none; color: #c2d3e9; font: 13px/1.8 Consolas, "Liberation Mono", monospace; }
+#diagnosisView .markdown-table { border: 1px solid #304258; border-radius: 10px; margin: 16px 0; }
+#diagnosisView .markdown table { margin: 0; font-size: 13px; }
+#diagnosisView .markdown th, #diagnosisView .markdown td { border: 0; border-bottom: 1px solid #293b50; padding: 11px 14px; }
+#diagnosisView .markdown th { background: #15263c; color: #d8e5f5; font-weight: 550; }
+#diagnosisView .markdown tr:last-child td { border-bottom: 0; }
+#diagnosisView .composer { border-color: #33485f; box-shadow: 0 8px 35px #00000024; }
+#diagnosisView .composer textarea { font-size: 15px; line-height: 1.7; min-height: 64px; }
+#diagnosisView .composer-footer { flex-wrap: wrap; }
+#diagnosisView .composer-tools button { white-space: nowrap; }
+#diagnosisView .send-button { flex-shrink: 0; margin-left: auto; }
+#diagnosisView .session-label { flex: 1; min-width: 60px; max-width: 190px; }
+
+/* 恢复交换机图标，Pod 分区淡化，设备状态仍可实时高亮。 */
+#diagnosisView .network-focus { border: 1px solid #30455e; border-radius: 9px; background: #132239; color: #b1c7e1; font-size: 12px; line-height: 1.7; }
+#diagnosisView .network-status { font-size: 11px; line-height: 1.7; }
+#diagnosisView .network-scope { padding-top: 0; }
+#diagnosisView .network-controls label { white-space: nowrap; }
+#diagnosisView .diagnosis-topology-stage { height: 360px; }
+#diagnosisView .diagnosis-topology-meta { display: none; }
+#diagnosisView .pod-region { fill: #14243833; stroke: #30435d; stroke-dasharray: none; }
+#diagnosisView .pod-label { fill: #9cb3d0; font-size: 12px; letter-spacing: .06em; }
+#diagnosisView .topology-link { stroke: #526f93; stroke-width: 1.5; stroke-linejoin: round; }
+#diagnosisView .topology-link.inspecting { stroke: #57cbd4; stroke-width: 2; }
+#diagnosisView .topology-link.problem { stroke: #ee8190; stroke-width: 2; }
+#diagnosisTopologySvg .node-label { font-size: 14px; font-weight: 550; }
+#diagnosisTopologySvg .node-type { font-size: 10px; fill: #90a6c1; letter-spacing: 0; }
+#diagnosisTopologySvg .node-state { font-size: 10px; text-anchor: middle; fill: #ef94a0; }
+#diagnosisTopologySvg .inspecting .node-state { fill: #76d8e0; }
+#diagnosisView .topology-node.inspecting .node-body { stroke-width: 2; }
+#diagnosisView .topology-node.inspecting .node-halo { fill: #31bfd21a; stroke: #62d5e377; }
+#diagnosisView .diagnosis-topology-legend { gap: 10px 12px; font-size: 10px; padding-top: 16px; }
+@media (max-width: 1100px) {
+  #diagnosisView .intro-card { grid-template-columns: 1fr; margin-top: 12px; }
+  #diagnosisView .agent-orb { width: 40px; height: 40px; border-radius: 12px; }
+  #diagnosisView .composer-hint { display: none; }
+  #diagnosisView .connection { max-width: 140px; font-size: 10px; }
+}
+@media (min-width: 801px) and (max-width: 1100px) {
+  .app-shell { grid-template-columns: 160px minmax(0, 1fr); }
+  .brand { padding: 0 12px; gap: 8px; }
+  .brand-mark { width: 28px; height: 28px; flex-shrink: 0; }
+  .brand strong { font-size: 12px; }
+  .brand small { font-size: 8px; }
+  .nav-item { padding-inline: 9px; gap: 8px; font-size: 13px; }
+  .nav-item svg { flex-shrink: 0; }
+  .nav-item span { white-space: nowrap; }
+  .nav-item em { display: none; }
+  .sidebar-footer { padding-inline: 10px; gap: 6px; }
+  .sidebar-footer button { display: none; }
+}
+@media (max-width: 800px) {
+  #diagnosisView .chat-scroll { padding-inline: 16px; }
+  #diagnosisView .intro-card { grid-template-columns: 1fr; margin-top: 20px; }
+  #diagnosisView .native-tool .step-header { flex-wrap: wrap; }
+  #diagnosisView .user-bubble { max-width: 95%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #diagnosisView *, #diagnosisView *::before { animation: none !important; transition: none !important; }
+}

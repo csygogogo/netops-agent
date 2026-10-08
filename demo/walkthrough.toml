@@ -1,0 +1,17 @@
+# 独立演示端口与数据目录，不占用正式服务。启动方式见 demo/README.md。
+[storage]
+directory = "../data/demo"
+[skills]
+directory = "../skills"
+[prompts]
+directory = "../prompts"
+[agent]
+max_steps = 24
+[server]
+port = 18080
+[frontend]
+port = 18090
+backend_url = "http://127.0.0.1:18080"
+[mcp.servers.demo]
+url = "http://127.0.0.1:18000/mcp"
+allowed_tools = ["list_fabrics", "query_devices", "query_fabric_topology", "get_interface_status", "get_device_logs", "start_demo_case", "get_service_path", "get_interface_counters", "repair_demo_link", "get_service_status"]

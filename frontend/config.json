@@ -1,0 +1,6 @@
+{
+  "features": {
+    "perception": true,
+    "deep_diagnosis": true
+  }
+}

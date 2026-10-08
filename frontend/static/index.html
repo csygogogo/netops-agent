@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="zh-CN" class="feature-config-loading">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>DCN 智能运维</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/diagnosis.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <div>
+          <strong>DCN 智能运维</strong>
+          <small>NETWORK AGENT</small>
+        </div>
+      </div>
+
+      <nav class="nav-list" aria-label="主要导航">
+        <button class="nav-item active" data-view="diagnosis">
+          <svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H9l-5 3v-14Z"/><path d="M8 10h.01M12 10h.01M16 10h.01"/></svg>
+          <span>故障诊断</span>
+        </button>
+        <button class="nav-item" data-view="perception">
+          <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-9 9c0 3.9 2.5 7.2 6 8.5M12 7a5 5 0 0 0-5 5c0 2.4 1.7 4.4 4 4.9M12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z"/><path d="m14.5 15.5 5 5m0-5v5h-5"/></svg>
+          <span>隐患感知</span>
+          <i id="navAlertDot" class="nav-dot hidden"></i>
+        </button>
+        <button class="nav-item" data-view="deepDiagnosis">
+          <svg viewBox="0 0 24 24"><path d="M4 5.5h16v11H9l-5 3v-14Z"/><path d="m15.5 9.5 1 2 2 .9-2 .9-1 2-1-2-2-.9 2-.9 1-2Z"/></svg>
+          <span>深度诊断</span>
+        </button>
+        <button class="nav-item" disabled>
+          <svg viewBox="0 0 24 24"><path d="M6 3h12v18H6zM9 8h6M9 12h6M9 16h3"/></svg>
+          <span>历史报告</span>
+          <em>即将上线</em>
+        </button>
+      </nav>
+
+      <div class="sidebar-divider"></div>
+      <section class="recent-section" id="recentSection">
+        <div class="section-label"><span>最近诊断</span><button title="搜索">⌕</button></div>
+      </section>
+
+      <div class="sidebar-footer">
+        <div class="user-avatar">OP</div>
+        <div><strong>运维工程师</strong><small>本地演示环境</small></div>
+        <button title="设置">⚙</button>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <section class="view active" id="diagnosisView">
+        <header class="topbar">
+          <div>
+            <div class="eyebrow">FAULT DIAGNOSIS</div>
+            <h1>故障诊断 <span>Copilot</span></h1>
+          </div>
+          <div class="top-actions">
+            <span class="connection" id="backendConnection"><i></i>正在连接后端</span>
+            <button class="ghost-button" id="newChatButton">＋ 新建对话</button>
+          </div>
+        </header>
+
+        <div class="diagnosis-layout context-collapsed" id="diagnosisLayout">
+          <section class="chat-panel">
+            <div class="chat-scroll" id="chatScroll">
+              <div class="intro-card" id="introCard">
+                <div class="agent-orb"><span>✦</span></div>
+                <div>
+                  <p class="overline">DCN DIAGNOSIS COPILOT</p>
+                  <h2>今天需要什么帮助？</h2>
+                  <p>可以排查网络故障、解释协议知识，或查询工具与技能。执行时展示计划、工具和证据；涉及设备时在拓扑中定位。</p>
+                  <div class="suggestion-grid">
+                    <button class="suggestion" data-prompt="请运行多 Pod 双故障完整演示：加载 dcn-path-investigation 技能，读取参考流程并创建独立 DEMO 实例。排查 checkout 主备路径，执行计数器分析脚本，检索并读取长日志证据。授权仅对该 DEMO 实例执行模拟修复，然后复查接口、计数器和业务主备状态，给出报告。"><span>完整功能演示</span><strong>多 Pod · 主备链路双故障</strong><small>技能、脚本、日志检索、模拟修复与复查</small></button>
+                    <button class="suggestion" data-prompt="查询 Leaf-03 的 Ethernet1/49 状态，异常时检查日志并给出原因，仅查询不修复。"><span>链路异常</span><strong>检查 Leaf-03 接口异常</strong><small>查询接口状态并核对设备日志</small></button>
+                    <button class="suggestion" data-prompt="现在系统里配置了哪些 MCP 服务，各自有哪些工具？有哪些 skill？"><span>系统能力</span><strong>查看 MCP 与技能</strong><small>查询实际可用的工具和技能目录</small></button>
+                    <button class="suggestion" data-prompt="请解释 DC 网络中 EVPN 与 VXLAN 各自的作用和关系。"><span>知识问答</span><strong>理解 EVPN / VXLAN</strong><small>也支持普通问答和技能内容查询</small></button>
+                  </div>
+                </div>
+              </div>
+              <div id="messages" class="messages" aria-live="polite"></div>
+            </div>
+
+            <form class="composer" id="composer">
+              <textarea id="questionInput" rows="1" placeholder="输入问题，查询工具、技能或描述故障…"></textarea>
+              <div class="composer-footer">
+                <div class="composer-tools">
+                  <span id="diagnosisSession" class="session-label"></span>
+                  <button type="button"><span class="pulse-dot"></span>流式诊断</button>
+                </div>
+                <span class="composer-hint">Enter 发送 · Shift + Enter 换行</span><button type="button" id="stopDiagnosis" class="ghost-button hidden">停止</button>
+                <button type="submit" class="send-button" id="sendButton" aria-label="发送">
+                  <svg viewBox="0 0 24 24"><path d="m4 12 16-8-5.5 16-3-6.5L4 12Z"/><path d="m11.5 13.5 3-3"/></svg>
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <aside class="diagnosis-rail" id="diagnosisRail">
+            <div class="diagnosis-rail-resizer" id="diagnosisRailResizer" role="separator" aria-label="调整执行拓扑宽度" aria-orientation="vertical"></div>
+            <button class="rail-heading diagnosis-rail-toggle" id="diagnosisRailToggle" type="button" aria-expanded="false" title="展开或收起执行拓扑">
+              <div><span class="status-orb"></span><strong>执行拓扑</strong></div>
+              <span class="rail-toggle-icon">‹</span>
+            </button>
+            <div class="diagnosis-topology-body"><div class="network-controls"><label>Fabric <select id="fabricSelect" aria-label="选择 Fabric"></select></label><button id="refreshNetwork" type="button" title="重新查询拓扑">↻</button></div><div id="networkStatus" class="network-status" role="status">正在读取拓扑</div><div id="networkFocus" class="network-focus">等待排查步骤</div>
+              <div class="network-controls network-scope"><label>范围 <select id="podSelect" aria-label="选择拓扑显示范围"><option value="auto">跟随当前排查</option><option value="all">全网概览</option></select></label></div>
+              <div class="context-empty" id="diagnosisTopologyEmpty">
+              <div class="context-symbol">⌁</div>
+                <strong>等待拓扑数据</strong>
+                <p>通过 MCP 加载 Fabric、设备与链路；工具调用时高亮当前排查位置。</p>
+              </div>
+              <div class="diagnosis-topology-content hidden" id="diagnosisTopologyContent">
+                <div class="diagnosis-topology-meta"><span>最近更新</span><strong id="diagnosisTopologyPhase">拓扑数据</strong></div>
+                <div class="diagnosis-topology-stage">
+                  <svg id="diagnosisTopologySvg" class="topology-canvas" role="img" aria-label="故障诊断执行拓扑"></svg>
+                  <div class="topology-zoom-controls" aria-label="拓扑缩放控制">
+                    <button type="button" id="diagnosisZoomOut" title="缩小">−</button>
+                    <button type="button" id="diagnosisZoomReset" class="zoom-value" title="恢复 100%">100%</button>
+                    <button type="button" id="diagnosisZoomIn" title="放大">＋</button>
+                  </div>
+                </div>
+                <div class="diagnosis-topology-legend"><span><i class="healthy"></i>未标记异常</span><span><i class="active-device"></i>当前排查</span><span><i class="warning"></i>异常设备</span><span><i class="bad-link"></i>异常链路</span></div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="perceptionView">
+        <header class="topbar perception-topbar">
+          <div>
+            <div class="eyebrow">PROACTIVE PERCEPTION</div>
+            <h1>隐患感知</h1>
+          </div>
+          <div class="service-live"><i></i><div><strong>感知服务运行中</strong><small>心跳正常 · 每 5 秒检查</small></div></div>
+        </header>
+
+        <div class="metric-strip">
+          <button class="metric-card metric-action" id="totalExecutionMetric" data-execution-filter="all"><span class="metric-icon blue">▣</span><div><small>隐患总数</small><strong id="totalExecutionCount">0</strong><em>点击查看全部执行记录</em></div></button>
+          <button class="metric-card metric-action" id="highRiskExecutionMetric" data-execution-filter="high"><span class="metric-icon red">!</span><div><small>高风险隐患</small><strong id="highRiskExecutionCount">0</strong><em>点击查看高风险记录</em></div></button>
+          <div class="metric-card"><span class="metric-icon cyan">▶</span><div><small>感知中</small><strong id="runningExecutionCount">0</strong><em>后台服务正在执行</em></div></div>
+          <div class="metric-card"><span class="metric-icon green">✓</span><div><small>已生成报告</small><strong id="completedExecutionCount">0</strong><em>可随时打开回看</em></div></div>
+        </div>
+
+        <div class="perception-workspace">
+          <section class="risk-list-panel">
+            <div class="panel-header">
+              <div><p class="overline">TASKS & EXECUTIONS</p><h2 id="riskPanelTitle">隐患任务库</h2></div>
+              <span id="riskCount" class="count-badge">0 条</span>
+            </div>
+            <div class="panel-mode-tabs">
+              <button class="active" id="taskLibraryTab" type="button">可执行任务</button>
+              <button id="executionHistoryTab" type="button">执行记录</button>
+            </div>
+            <div id="taskLibraryContent">
+              <div class="filter-row">
+                <button class="filter-chip active">全部</button><button class="filter-chip">高风险</button><button class="filter-chip">中风险</button>
+                <label class="risk-search"><span>⌕</span><input id="riskSearch" placeholder="搜索任务"></label>
+              </div>
+              <div class="risk-list" id="riskList"></div>
+            </div>
+            <div class="hidden" id="executionHistoryContent">
+              <div class="execution-list-heading"><span id="executionFilterLabel">全部执行记录</span><button type="button" id="refreshExecutions">↻ 刷新</button></div>
+              <div class="execution-list" id="executionList"></div>
+            </div>
+          </section>
+
+          <section class="topology-panel" id="topologyPanel">
+            <div class="panel-header topology-header">
+              <div>
+                <p class="overline">AUTO LAYOUT</p>
+                <h2>影响拓扑</h2>
+              </div>
+              <div class="topology-legend"><span><i class="healthy"></i>正常</span><span><i class="warning"></i>异常设备</span><span><i class="bad-link"></i>异常链路</span></div>
+            </div>
+            <div class="topology-stage" id="topologyStage">
+              <div class="topology-empty-state" id="topologyEmpty">
+                <div class="context-symbol">⌁</div>
+                <strong>请选择执行记录</strong>
+                <p>打开一条执行过的隐患后，这里展示该实例对应的拓扑。</p>
+              </div>
+              <svg id="topologySvg" class="topology-canvas hidden" role="img" aria-label="DCN 隐患拓扑"></svg>
+              <div class="topology-badge hidden" id="topologyBadge"><span>⌁</span>根据设备类型与连线自动布局</div>
+              <div class="topology-zoom-controls hidden" id="perceptionZoomControls" aria-label="影响拓扑缩放控制">
+                <button type="button" id="perceptionZoomOut" title="缩小">−</button>
+                <button type="button" id="perceptionZoomReset" class="zoom-value" title="恢复 100%">100%</button>
+                <button type="button" id="perceptionZoomIn" title="放大">＋</button>
+              </div>
+            </div>
+            <div class="selected-risk-summary" id="selectedRiskSummary"></div>
+
+            <div class="report-resize-handle hidden" id="reportResizeHandle" role="separator" aria-label="调整隐患报告高度" aria-orientation="horizontal"><span></span></div>
+            <section class="report-card hidden" id="reportCard">
+              <div class="rail-heading"><div><span class="status-orb green"></span><strong>隐患分析报告</strong></div><button class="text-button" id="toggleReport">收起</button></div>
+              <article class="markdown report-markdown" id="reportMarkdown"></article>
+            </section>
+          </section>
+
+          <aside class="perception-rail">
+            <section class="selected-task-card">
+              <div class="rail-heading"><div><span class="status-orb amber"></span><strong>隐患执行详情</strong></div><span class="subtle-chip purple">INSTANCE</span></div>
+              <h3 id="selectedRiskTitle">请选择一条执行记录</h3>
+              <p id="selectedRiskDescription">任务模板只负责下发；拓扑、报告和事件流均属于某一次独立执行。</p>
+              <div class="risk-meta" id="selectedRiskMeta"><span>未选择</span></div>
+            </section>
+
+            <section class="event-card">
+              <div class="rail-heading"><div><span class="status-orb cyan"></span><strong>感知事件流</strong></div><span id="eventState" class="subtle-chip">等待任务</span></div>
+              <div class="event-empty" id="eventEmpty"><span>◌</span><p>选择执行记录后，这里展示该实例的完整感知过程。</p></div>
+              <ol class="event-timeline hidden" id="eventTimeline"></ol>
+            </section>
+
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="deepDiagnosisView">
+        <header class="topbar deep-diagnosis-topbar">
+          <div>
+            <div class="eyebrow">隐患感知 / 执行记录 / 深度诊断</div>
+            <h1>隐患深度诊断 <span>Copilot</span></h1>
+          </div>
+          <div class="top-actions">
+            <span class="connection"><i></i>诊断服务已连接</span>
+            <button class="ghost-button hidden" id="deepRerunButton" type="button">↻ 重新诊断</button>
+            <button class="ghost-button" id="deepBackButton" type="button">← 返回隐患报告</button>
+          </div>
+        </header>
+
+        <div class="deep-workflow" aria-label="深度诊断流程">
+          <div class="deep-workflow-step complete"><i>✓</i><div><strong>隐患感知</strong><small>已完成</small></div></div>
+          <span>→</span>
+          <div class="deep-workflow-step complete"><i>✓</i><div><strong>报告生成</strong><small>已完成</small></div></div>
+          <span>→</span>
+          <div class="deep-workflow-step active"><i>3</i><div><strong>隐患深诊</strong><small id="deepWorkflowState">准备中</small></div></div>
+        </div>
+
+        <div class="deep-diagnosis-workspace">
+          <aside class="deep-source-panel">
+            <div class="panel-header">
+              <div><p class="overline">DIAGNOSIS INPUT</p><h2>隐患分析报告</h2></div>
+              <span class="subtle-chip purple">诊断输入</span>
+            </div>
+            <div class="deep-source-context">
+              <h3 id="deepSourceTitle">请选择隐患执行记录</h3>
+              <small id="deepSourceExecutionId">未选择执行</small>
+              <div class="risk-meta" id="deepSourceMeta"><span>未选择</span></div>
+            </div>
+            <article class="markdown deep-source-report" id="deepSourceReport"></article>
+          </aside>
+
+          <section class="deep-copilot-panel">
+            <div class="panel-header">
+              <div><p class="overline">REPORT-DRIVEN DIAGNOSIS</p><h2>深度诊断 Copilot</h2></div>
+              <span class="subtle-chip" id="deepDiagnosisState">等待诊断</span>
+            </div>
+            <div class="deep-chat-scroll" id="deepChatScroll">
+              <div class="deep-chat-empty" id="deepChatEmpty">
+                <div class="agent-orb"><span>✦</span></div>
+                <h2>请从隐患执行记录发起深度诊断</h2>
+                <p>选择一条已生成隐患报告的执行记录，点击“诊断”或“诊断报告”。</p>
+              </div>
+              <div class="messages deep-messages" id="deepMessages" aria-live="polite"></div>
+            </div>
+            <form class="composer deep-composer" id="deepComposer">
+              <textarea id="deepQuestionInput" rows="1" placeholder="基于该隐患继续追问…"></textarea>
+              <div class="composer-footer">
+                <div class="deep-context-chip">▤ 隐患报告已引用</div>
+                <span class="composer-hint">Enter 发送 · 本次提问会重新诊断</span>
+                <button type="submit" class="send-button" id="deepSendButton" aria-label="发送深度诊断">
+                  <svg viewBox="0 0 24 24"><path d="m4 12 16-8-5.5 16-3-6.5L4 12Z"/><path d="m11.5 13.5 3-3"/></svg>
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <aside class="deep-topology-panel">
+            <div class="panel-header topology-header">
+              <div><p class="overline">TAGGED TOPOLOGY</p><h2>关联拓扑</h2></div>
+              <span class="subtle-chip" id="deepTopologyState">等待数据</span>
+            </div>
+            <div class="deep-topology-stage" id="deepTopologyStage">
+              <div class="topology-empty-state" id="deepTopologyEmpty">
+                <div class="context-symbol">⌁</div>
+                <strong>等待拓扑数据</strong>
+                <p>收到诊断流中的 topology 标签后自动绘制。</p>
+              </div>
+              <svg id="deepTopologySvg" class="topology-canvas hidden" role="img" aria-label="隐患深度诊断关联拓扑"></svg>
+              <div class="topology-zoom-controls hidden" id="deepZoomControls" aria-label="关联拓扑缩放控制">
+                <button type="button" id="deepZoomOut" title="缩小">−</button>
+                <button type="button" id="deepZoomReset" class="zoom-value" title="恢复 100%">100%</button>
+                <button type="button" id="deepZoomIn" title="放大">＋</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"><span>!</span><div><strong id="toastTitle">检测到隐患</strong><p id="toastMessage">感知服务发现新的异常信号</p></div><button id="toastClose">×</button></div>
+  <script src="/app.js" defer></script>
+  <script src="/diagnosis.js" defer></script>
+</body>
+</html>

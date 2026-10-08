@@ -1,0 +1,75 @@
+# 环境变量 DCN_CONFIG 可指定其他 TOML 文件；相对路径以该文件目录为基准。
+[model]
+# 后端默认走 Ollama 原生 /api/chat，确保 num_ctx 真正生效。
+# 设为 openai 可走现有 /v1 兼容接口；此时窗口需在模型服务端另行配置。
+transport = "ollama"
+base_url = "http://localhost:11434/v1"
+api_key_env = "OLLAMA_API_KEY"
+model = "qwen2.5:3b"
+timeout_seconds = 120
+context_window_tokens = 16384
+max_output_tokens = 1536
+# 预算采用保守的 UTF-8 字节估算；给聊天模板、模型差异留出余量。
+safety_margin_tokens = 1024
+compression_trigger_ratio = 0.80
+summary_tokens = 1000
+temperature = 0.1
+
+[agent]
+# 是否允许暂停本轮并请求用户补充信息；修改后重启服务。
+allow_clarification = true
+max_steps = 24
+max_run_seconds = 600
+decision_retries = 1
+max_identical_calls = 3
+tool_timeout_seconds = 60
+tool_result_tokens = 1800
+max_input_chars = 12000
+heartbeat_seconds = 10
+
+[storage]
+directory = "data"
+
+[skills]
+directory = "skills"
+max_active = 3
+instruction_tokens = 1200
+# 直接在本机执行可信脚本，无需用户逐次确认；false 则禁止脚本执行。
+allow_scripts = true
+# 留空使用后端当前 Python；也可填写 Python 可执行文件路径，修改后重启。
+# Windows 示例："C:/Miniconda/envs/agent/python.exe"；Linux 示例："/opt/conda/envs/agent/bin/python"
+python_path = ""
+script_timeout_seconds = 300
+
+[prompts]
+directory = "prompts"
+
+[server]
+host = "127.0.0.1"
+port = 8080
+# 可选：设置 DCN_API_TOKEN 环境变量，所有 /v1 接口要求 Bearer Token。
+api_token_env = "DCN_API_TOKEN"
+
+# 可配置多个 Streamable HTTP 服务。名称用于 mcp.call 的 server 参数。
+# 未配置时可通过 MCP_SERVER_URL / MCP_API_TOKEN 环境变量接入名为 default 的服务。
+# [mcp.servers.dcn]
+# url = "http://localhost:8000/mcp"
+# token_env = "MCP_API_TOKEN"
+# allowed_tools = []  # 空列表允许该服务的所有工具
+
+[frontend]
+host = "127.0.0.1"
+port = 8090
+backend_url = "http://127.0.0.1:8080"
+
+# 前端拓扑只调用这里配置的三个查询工具，替换真实服务时修改名称即可。
+[topology]
+server = "demo"
+fabric_tool = "list_fabrics"
+device_tool = "query_devices"
+topology_tool = "query_fabric_topology"
+device_page_size = 1000
+
+[mcp.servers.demo]
+url = "http://127.0.0.1:8000/mcp"
+allowed_tools = ["list_fabrics", "query_devices", "query_fabric_topology", "get_interface_status", "get_device_logs", "start_demo_case", "get_service_path", "get_interface_counters", "repair_demo_link", "get_service_status"]
