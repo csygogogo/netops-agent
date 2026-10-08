@@ -9,13 +9,14 @@ import subprocess
 import sys
 import time
 from weakref import WeakKeyDictionary
+from urllib.parse import urlsplit
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from dcn_agent.api import create_app
-from dcn_agent.config import load_settings
+from dcn_agent.config import load_settings, server_url
 
 QUESTION = "请运行多 Pod 双故障完整演示：加载 dcn-path-investigation 技能，读取参考流程并创建独立 DEMO 实例。排查 checkout 主备路径，执行计数器分析脚本，检索并读取长日志证据。授权仅对该 DEMO 实例执行模拟修复，然后复查接口、计数器和业务主备状态，给出报告。"
 
@@ -26,7 +27,7 @@ class WalkthroughModel:
         self.runs = WeakKeyDictionary()  # 每个后台执行任务单独计步，支持多会话并发。
 
     def state(self):
-        return self.runs.setdefault(asyncio.current_task(), {"step": 0, "metrics": [], "observations": [], "case_id": ""})
+        return self.runs.setdefault(asyncio.current_task(), {"step": 0, "metrics": [], "case_id": ""})
 
     def observe(self, observation, state):
         """只读取本轮真实工具结果，动态取得 case_id、采样与日志位置。"""
@@ -37,7 +38,6 @@ class WalkthroughModel:
         if state.get("last_call") == observation["call_id"]:
             raise ValueError("未取得本步骤的新工具结果")
         state["last_call"] = observation["call_id"]
-        state["observations"].append(observation)
         raw = observation.get("result", {})
         data = raw.get("data") if isinstance(raw, dict) else None
         if data is None and isinstance(raw, dict) and raw.get("text"):
@@ -149,7 +149,7 @@ def main():
     parser.add_argument("--model", action="store_true", help="使用配置中的实际大模型，不使用固定步骤")
     parser.add_argument("--backend", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
-    config = ROOT / "demo/walkthrough.toml"
+    config = Path(os.getenv("DCN_CONFIG", ROOT / "demo/walkthrough.toml")).resolve()
     settings = load_settings(config)
     if args.backend:
         import uvicorn
@@ -166,16 +166,23 @@ def main():
                     model.observe(data, model.state())
                 return payload
             app.state.agent.event = event
-        uvicorn.run(app, host="127.0.0.1", port=18080, access_log=False)
+        uvicorn.run(app, host=settings.server.host, port=settings.server.port, access_log=False)
         return
-    for port in (18000, 18080, 18090):
-        with socket.socket() as sock:
-            sock.settimeout(.3)
-            if sock.connect_ex(("127.0.0.1", port)) == 0:
-                raise SystemExit(f"端口 {port} 已占用，请先关闭此前的演示进程")
+    mcp = urlsplit(settings.mcp.servers["demo"].url)
+    endpoints = [(mcp.hostname, mcp.port or 80), (settings.server.host, settings.server.port),
+                 (settings.frontend.host, settings.frontend.port)]
+    if len({port for _, port in endpoints}) != len(endpoints):
+        raise SystemExit("演示的 MCP、后端和前端请配置不同端口")
+    for host, port in endpoints:
+        host = urlsplit(server_url(host, port)).hostname
+        try:
+            with socket.create_connection((host, port), timeout=.3):
+                raise SystemExit(f"{host}:{port} 已占用，请先关闭此前的演示进程")
+        except OSError:
+            pass
     env = dict(os.environ, DCN_CONFIG=str(config), PYTHONDONTWRITEBYTECODE="1", PYTHONIOENCODING="utf-8")
     commands = [
-        ["-c", "from demo.demo_mcp_server import server; server.settings.port=18000; server.run(transport='streamable-http')"],
+        ["demo/demo_mcp_server.py"],
         [str(Path(__file__).resolve()), "--backend", *(["--model"] if args.model else [])],
         ["frontend/app.py"],
     ]
@@ -185,7 +192,7 @@ def main():
             children.append(subprocess.Popen([sys.executable, "-B", *command], cwd=ROOT, env=env,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)))
         print("演示进程 PID（MCP / 后端 / 前端）：" + " / ".join(str(child.pid) for child in children), flush=True)
-        print("演示界面：http://127.0.0.1:18090\n模式：" + ("真实大模型" if args.model else "固定步骤 / 实际工具") + "\n输入：" + QUESTION + "\n按 Ctrl+C 停止全部演示服务。", flush=True)
+        print("演示界面：" + server_url(settings.frontend.host, settings.frontend.port) + "\n模式：" + ("真实大模型" if args.model else "固定步骤 / 实际工具") + "\n输入：" + QUESTION + "\n按 Ctrl+C 停止全部演示服务。", flush=True)
         while all(child.poll() is None for child in children):
             time.sleep(1)
     except KeyboardInterrupt:

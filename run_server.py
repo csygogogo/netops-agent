@@ -1,4 +1,4 @@
-"""启动后端；Windows 和 Linux 均使用当前已激活的 conda agent 环境。"""
+"""启动后端；Windows 和 Linux 均使用当前已激活的 conda agent310 环境。"""
 import sys
 
 # 标准入口不生成 __pycache__，在导入项目模块前设置。

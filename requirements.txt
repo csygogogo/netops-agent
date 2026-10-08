@@ -5,3 +5,7 @@ fastapi>=0.115,<1
 uvicorn>=0.31,<1
 PyYAML>=6,<7
 jsonschema>=4.20,<5
+anyio>=4.5,<5
+async-timeout>=5,<6
+tomli>=2,<3; python_version < "3.11"
+exceptiongroup>=1.2,<2; python_version < "3.11"

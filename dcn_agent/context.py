@@ -1,13 +1,12 @@
 """压缩工作上下文，完整消息、事件和结果仍保留在持久化存储。"""
 from .budget import clip, message_tokens, tokens
-from .config import ModelConfig
 from .model import ContextOverflow
 from .storage import encode
 
 
 class Context:
     """保留当前目标和近期记录，将较旧历史压缩为滚动摘要。"""
-    def __init__(self, config: ModelConfig, model, compression_prompt: str):
+    def __init__(self, config, model, compression_prompt: str):
         self.config = config
         self.model = model
         self.compression_prompt = compression_prompt

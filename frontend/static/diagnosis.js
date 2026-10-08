@@ -1,4 +1,4 @@
-// 故障诊断使用后端原生 type/data 事件；隐患页面继续使用原有演示协议。
+// 故障诊断使用后端 opencode 风格事件（id/type/properties）；隐患页面继续使用原有演示协议。
 let diagnosisAbort = null;
 let diagnosisRunId = null;
 let networkRequest = 0;
@@ -285,33 +285,41 @@ function eventNote(run, title, text, kind = "") {
   $(".steps", run).append(card);
 }
 
-function toolCard(run, event, calls) {
-  const data = event.data;
-  if (event.type === "tool.call") {
+function toolCard(run, part, calls) {
+  // 工具分段：running 建卡，completed/error 时补结果与原文入口。
+  const toolState = part.state || {};
+  const callId = part.callID;
+  if (toolState.status === "pending" || toolState.status === "running") {
+    if (calls.has(callId)) return;
     const card = document.createElement("article"); card.className = "step-card native-tool";
-    card.dataset.callId = data.call_id;
+    card.dataset.callId = callId;
     card.dataset.status = "running";
-    const category = data.name.startsWith("mcp.") ? "MCP" : data.name.startsWith("skill.") ? "SKILL" : "检索";
-    card.innerHTML = `<header class="step-header"><span class="tool-category">${category}</span><strong>${escapeHtml(data.arguments?.name || data.name)}</strong><span class="step-status">执行中</span></header><details><summary>调用参数 <span>${escapeHtml(data.name)}</span></summary></details><details class="native-result"><summary>返回结果 <span>等待返回</span></summary></details>`;
-    $("details", card).append(renderRawContent(data.arguments));
+    const category = part.tool.startsWith("mcp.") ? "MCP" : part.tool.startsWith("skill.") ? "SKILL" : "检索";
+    card.innerHTML = `<header class="step-header"><span class="tool-category">${category}</span><strong>${escapeHtml(toolState.title || part.tool)}</strong><span class="step-status">执行中</span></header><details><summary>调用参数 <span>${escapeHtml(part.tool)}</span></summary></details><details class="native-result"><summary>返回结果 <span>等待返回</span></summary></details>`;
+    $("details", card).append(renderRawContent(toolState.input));
     $(".steps", run).append(card);
-    calls.set(data.call_id, { ...data, card });
-  } else {
-    const call = calls.get(data.call_id); if (!call) return;
-    const ok = data.ok !== false;
-    call.card.dataset.status = ok ? "completed" : "error";
-    $(".step-status", call.card).textContent = ok ? "已返回" : "调用失败";
-    call.card.classList.toggle("tool-failed", !ok);
-    const details = $(".native-result", call.card);
-    $("summary", details).textContent = data.truncated ? `结果摘要 · 原文 ${data.chars} 字符` : "返回结果 · 点击展开";
-    const content = data.name === "mcp.call" && ok ? mcpPayload(data.result) : data.result;
-    details.append(renderRawContent(data.truncated ? { preview: data.preview, status: data.status, exit_code: data.exit_code } : content));
-    if (data.artifact_id) {
-      const area = document.createElement("div"); area.className = "artifact-controls";
-      area.innerHTML = `<small>结果 ID：${escapeHtml(data.artifact_id)}</small><button type="button" data-read-artifact="${escapeHtml(data.artifact_id)}" data-session="${escapeHtml(event.session_id)}" data-offset="0">读取原文片段</button><a href="/v1/sessions/${encodeURIComponent(event.session_id)}/artifacts/${encodeURIComponent(data.artifact_id)}/raw" target="_blank" rel="noopener">完整 JSON</a><pre class="artifact-page hidden"></pre>`;
-      details.append(area);
-    }
+    calls.set(callId, { call_id: callId.slice(5), name: part.tool, arguments: toolState.input || {},
+      step: toolState.metadata?.step, card });
+    return;
   }
+  const call = calls.get(callId); if (!call) return;
+  let data = {};
+  try { data = JSON.parse(toolState.output || "{}"); } catch { /* 输出不是 JSON 时仅展示原文。 */ }
+  const ok = toolState.status === "completed";
+  call.card.dataset.status = ok ? "completed" : "error";
+  $(".step-status", call.card).textContent = ok ? "已返回" : "调用失败";
+  call.card.classList.toggle("tool-failed", !ok);
+  const details = $(".native-result", call.card);
+  $("summary", details).textContent = data.truncated ? `结果摘要 · 原文 ${data.chars} 字符` : "返回结果 · 点击展开";
+  const content = call.name === "mcp.call" && ok ? mcpPayload(data.result) : data.result;
+  details.append(renderRawContent(data.truncated ? { preview: data.preview, status: data.status, exit_code: data.exit_code } : content));
+  if (data.artifact_id) {
+    const session = state.currentConversationId;
+    const area = document.createElement("div"); area.className = "artifact-controls";
+    area.innerHTML = `<small>结果 ID：${escapeHtml(data.artifact_id)}</small><button type="button" data-read-artifact="${escapeHtml(data.artifact_id)}" data-session="${escapeHtml(session)}" data-offset="0">读取原文片段</button><a href="/v1/sessions/${encodeURIComponent(session)}/artifacts/${encodeURIComponent(data.artifact_id)}/raw" target="_blank" rel="noopener">完整 JSON</a><pre class="artifact-page hidden"></pre>`;
+    details.append(area);
+  }
+  return data;
 }
 
 async function readArtifactPage(button) {
@@ -341,46 +349,63 @@ async function sendBackendDiagnosis(question) {
   let answer = "", answerElement = null, terminal = "", lastSeq = 0;
   $("#questionInput").value = ""; resizeComposer(); scrollChatToBottom(true);
   saveCurrentConversationState();
-  async function accept(event) {
-    if (event.session_id !== state.currentConversationId || (diagnosisRunId && event.run_id !== diagnosisRunId)) return;
-    if (event.seq <= lastSeq) return;
-    lastSeq = event.seq; diagnosisRunId ||= event.run_id;
-    const data = event.data || {}, follow = isNearChatBottom();
+  const messages = new Map(); // messageID 到 role 的映射，用于区分用户消息的 text 分段。
+  function renderAnswer() {
+    if (!answerElement) {
+      const article = document.createElement("article"); article.className = "agent-final-response";
+      article.innerHTML = '<div class="answer-heading"><span aria-hidden="true">✦</span> 回答</div><div class="answer-body markdown"></div>';
+      $(".steps", run).append(article); answerElement = $(".answer-body", article);
+    }
+    answerElement.innerHTML = markdownToHtml(answer);
+  }
+  async function accept(event, seq = 0) {
+    const props = event.properties || {};
+    if (props.sessionID !== "ses_" + state.currentConversationId) return;
+    if (seq && seq <= lastSeq) return;
+    if (seq) lastSeq = seq;
+    const follow = isNearChatBottom();
     $(".typing-card", run)?.remove();
-    if (event.type === "plan") eventNote(run, "执行计划", (data.steps || []).map((s, i) => `${i + 1}. ${s}`).join("\n"));
-    else if (event.type === "reasoning") eventNote(run, "当前步骤", data.text);
-    else if (event.type === "reflection") eventNote(run, "证据评估", data.text);
-    else if (event.type === "tool.call" || event.type === "tool.result") {
-      toolCard(run, event, calls);
-      const call = event.type === "tool.call" ? data : calls.get(data.call_id);
-      if (call?.name === "mcp.call") {
-        const step = ++networkStep;
-        const isCurrent = () => !finished && step === networkStep && session === state.currentConversationId;
-        // 拓扑是辅助展示，慢请求不能阻塞后续文本、停止或结束事件。
-        locateTool(call, event.type === "tool.result" ? data : null, isCurrent).then(() => {
-          const payload = mcpPayload(data.result);
-          if (isCurrent() && event.type === "tool.result" && (payload?.nodes || payload?.deviceInfo || payload?.fabrics)) {
-            return loadNetwork(call.arguments?.arguments?.fabricId || network.selected, true, isCurrent);
-          }
-        }).catch(error => { if (isCurrent()) $("#networkStatus").textContent = `拓扑定位失败：${error.message}`; });
+    if (event.type === "message.updated") {
+      if (props.info?.id) messages.set(props.info.id, props.info.role);
+    } else if (event.type === "message.part.updated") {
+      const part = props.part || {};
+      if (part.type === "step-start") {
+        const meta = part.metadata || {};
+        $(".run-label span", run).textContent = meta.phase === "answer" ? "正在生成结论…" : `正在分析 · 步骤 ${meta.step || "—"}`;
+      } else if (part.type === "reasoning") {
+        const kind = part.metadata?.kind;
+        if (kind === "plan") eventNote(run, "执行计划", (part.text || "").split("\n").map((s, i) => `${i + 1}. ${s.replace(/^\d+\.\s*/, "")}`).join("\n"));
+        else if (kind === "reflection") eventNote(run, "证据评估", part.text);
+        else if (part.text) eventNote(run, "当前步骤", part.text);
+      } else if (part.type === "tool") {
+        const data = toolCard(run, part, calls);
+        const call = calls.get(part.callID);
+        if (call?.name === "mcp.call" && part.state?.status !== "pending") {
+          const step = ++networkStep;
+          const isCurrent = () => !finished && step === networkStep && session === state.currentConversationId;
+          // 拓扑是辅助展示，慢请求不能阻塞后续文本、停止或结束事件。
+          locateTool(call, part.state.status === "running" ? null : data, isCurrent).then(() => {
+            const payload = mcpPayload(data?.result);
+            if (isCurrent() && part.state.status !== "running" && (payload?.nodes || payload?.deviceInfo || payload?.fabrics)) {
+              return loadNetwork(call.arguments?.arguments?.fabricId || network.selected, true, isCurrent);
+            }
+          }).catch(error => { if (isCurrent()) $("#networkStatus").textContent = `拓扑定位失败：${error.message}`; });
+        }
+      } else if (part.type === "text" && messages.get(part.messageID) !== "user") {
+        answer = part.text || answer;
+        renderAnswer();
       }
-    } else if (event.type === "answer.delta" || event.type === "answer.completed") {
-      answer = event.type === "answer.delta" ? answer + (data.text || "") : data.text || answer;
-      if (!answerElement) {
-        const article = document.createElement("article"); article.className = "agent-final-response";
-        article.innerHTML = '<div class="answer-heading"><span aria-hidden="true">✦</span> 回答</div><div class="answer-body markdown"></div>';
-        $(".steps", run).append(article); answerElement = $(".answer-body", article);
-      }
-      answerElement.innerHTML = markdownToHtml(answer);
-    } else if (event.type === "clarification") eventNote(run, "需要补充信息", data.question);
-    else if (event.type === "error") { terminal = data.code || "error"; eventNote(run, "执行错误", data.message, "tool-failed"); }
-    else if (event.type === "context.compressed") eventNote(run, "上下文已压缩", `估算量 ${data.before_tokens_estimate} → ${data.after_tokens_estimate}${data.fallback ? "，摘要生成失败，已使用历史截取" : ""}`);
-    else if (event.type === "limit") eventNote(run, "执行限制", data.reason);
-    else if (event.type === "model.retry") eventNote(run, "重新生成决策", data.reason);
-    else if (event.type === "skill.loaded") eventNote(run, "已加载技能", data.name);
-    else if (event.type === "model.started") $(".run-label span", run).textContent = data.phase === "answer" ? "正在生成结论…" : `正在分析 · 步骤 ${data.step}`;
-    else if (event.type === "run.completed") terminal = data.status;
-    else if (event.type === "run.cancelled") terminal = "cancelled";
+    } else if (event.type === "message.part.delta") {
+      answer += props.delta || "";
+      renderAnswer();
+    } else if (event.type === "session.idle") {
+      terminal = props.status || "completed";
+    } else if (event.type === "clarification") eventNote(run, "需要补充信息", props.question);
+    else if (event.type === "error") { terminal = props.code || "error"; eventNote(run, "执行错误", props.message, "tool-failed"); }
+    else if (event.type === "context.compressed") eventNote(run, "上下文已压缩", `估算量 ${props.before_tokens_estimate} → ${props.after_tokens_estimate}${props.fallback ? "，摘要生成失败，已使用历史截取" : ""}`);
+    else if (event.type === "limit") eventNote(run, "执行限制", props.reason);
+    else if (event.type === "model.retry") eventNote(run, "重新生成决策", props.reason);
+    else if (event.type === "skill.loaded") eventNote(run, "已加载技能", props.name);
     if (follow) $("#chatScroll").scrollTop = $("#chatScroll").scrollHeight;
   }
   try {
@@ -401,7 +426,7 @@ async function sendBackendDiagnosis(question) {
         while ((boundary = /\r?\n\r?\n/.exec(buffer))) {
           const block = buffer.slice(0, boundary.index); buffer = buffer.slice(boundary.index + boundary[0].length);
           const parsed = parseSseBlock(block.replaceAll("\r", ""));
-          if (parsed) await accept(parsed.data);
+          if (parsed) await accept(parsed.data, parsed.id);
         }
         if (done) break;
       }

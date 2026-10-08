@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+from asyncio import TimeoutError
+from async_timeout import timeout as async_timeout
 import os
 import re
 import sys
@@ -134,7 +136,7 @@ class Skills:
             )
             status = "completed"
             try:
-                async with asyncio.timeout(self.config.script_timeout_seconds):
+                async with async_timeout(self.config.script_timeout_seconds):
                     await process.wait()
             except TimeoutError:
                 status = "timeout"

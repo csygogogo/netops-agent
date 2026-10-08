@@ -33,6 +33,6 @@ def analyze(samples, threshold):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--samples", required=True, help="两次采样组成的 JSON 数组")
-    parser.add_argument("--threshold", type=float, required=True, help="错误率阈值，例如 0.01 表示 1%")
+    parser.add_argument("--threshold", type=float, required=True, help="错误率阈值，例如 0.01 表示 1%%")
     args = parser.parse_args()
     print(json.dumps(analyze(json.loads(args.samples), args.threshold), ensure_ascii=False))

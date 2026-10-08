@@ -6,7 +6,6 @@ import httpx
 from .llm_calling import astream_llm
 
 from .budget import message_tokens
-from .config import ModelConfig
 
 
 class ContextOverflow(ValueError):
@@ -16,7 +15,7 @@ class ContextOverflow(ValueError):
 
 class Model:
     """统一原生 Ollama 与 OpenAI 兼容接口的异步文本输出。"""
-    def __init__(self, config: ModelConfig):
+    def __init__(self, config):
         self.config = config
 
     async def stream(self, messages: list[dict], *, json_mode: bool | dict = False, max_tokens: int | None = None):

@@ -1,212 +1,137 @@
-# DCN 网络智能体后端
+# DCN 网络智能体
 
-已实现 FastAPI + SSE 后端、ReAct 工具循环、Skill 渐进式加载、上下文压缩、超长结果检索、多轮会话和分层提示词。需要 Python 3.11+。
+提供流式问答、ReAct 工具调用、Skill 渐进式加载、上下文压缩、多轮会话和拓扑定位。
+对外 SSE 事件采用 opencode 风格协议（`{"id","type","properties"}`，会话/消息/分段生命周期），字段结构见 [后端手册](BACKEND.md)。
+故障诊断接入真实模型与 MCP；前端"隐患感知"与"深度诊断"页面为模拟界面，可在 `frontend/config.json` 中关闭。
 
-```powershell
-conda activate agent
-python -m pip install -r requirements.txt
-python run_server.py
-```
-
-前端故障诊断已接入真实 SSE：运行 `python demo/demo_mcp_server.py` 和 `python frontend/app.py`，打开 http://127.0.0.1:8090 。完整说明见 [frontend/README.md](frontend/README.md)。隐患界面暂保留模拟流程。
-
-完整功能演示：运行 `python demo/run_walkthrough.py`，打开 http://127.0.0.1:18090 ，点击“多 Pod · 主备链路双故障”，可观察拓扑定位、技能、脚本、长日志检索、模拟修复和复查。默认采用固定决策、实际执行工具；加 `--model` 使用配置中的真实模型。场景与数据目录说明见 [demo/README.md](demo/README.md)。
-
-另开终端：
-
-```powershell
-python chat_client.py "你好，请介绍你能做什么" --session-id "demo-001"
-```
-
-- 默认接口：`POST http://127.0.0.1:8080/v1/chat/stream`
-- 请求必传 `session_id`，首次使用自动创建，相同 ID 延续会话。
-- 配置：`config.toml`
-- **完整后端使用说明、事件协议、六项功能说明见 [BACKEND.md](BACKEND.md)。**
-
-下面是两个可独立复用的基础调用模块的说明。
-
-## 目录与日志
+## 目录结构
 
 ```text
-run_server.py              # 服务启动入口
-chat_client.py             # 命令行聊天客户端
-demo/                     # 本地联调用的模拟 MCP 服务
-dcn_agent/
-  llm_calling.py           # 可独立导入的模型调用函数
-  mcp_calling.py           # 可独立导入的 MCP 调用函数
-  engine.py               # 智能体循环，其余模块见 BACKEND.md
-skills/                   # 技能及按需加载的资源
-prompts/                  # 系统和阶段提示词
-data/
-  agent.sqlite3           # 会话历史、摘要、提示词和运行状态
-  sessions/<session_id>/
-    session.log           # 一个会话一个日志，多轮追加
-    results/              # 完整工具结果 JSON 和检索文本
+DCN_Agent/
+├── run_server.py            # 后端启动入口（正式运行必需）
+├── frontend/app.py          # 前端静态服务 + SSE 代理（正式运行必需）
+├── chat_client.py           # 命令行聊天客户端，打印流式事件
+├── print_stream_events.py   # SSE 事件核对工具，用于检查事件字段
+├── config.toml              # 全部配置：模型、MCP、端口、技能、超时
+├── requirements.txt         # Python 依赖（迁移后 pip install 即可）
+├── dcn_agent/               # 后端核心包（正式运行必需）
+│   ├── api.py               #   HTTP/SSE 接口层
+│   ├── engine.py            #   ReAct 执行引擎（决策 → 工具 → 最终回答）
+│   ├── events.py            #   事件协议转换：引擎内部事件 → opencode 风格对外事件
+│   ├── model.py             #   模型适配：Ollama 原生 /api/chat 或 OpenAI 兼容接口
+│   ├── llm_calling.py       #   OpenAI 兼容调用基础函数，可独立复用
+│   ├── tools.py             #   本地工具路由（skill.* / mcp.* / artifact.*）
+│   ├── mcp_calling.py       #   MCP Streamable HTTP 客户端，可独立复用
+│   ├── skills.py            #   技能目录扫描与渐进式加载
+│   ├── artifacts.py         #   工具结果落盘、字符分页与关键词检索
+│   ├── context.py           #   上下文预算与滚动压缩
+│   ├── budget.py            #   与 tokenizer 无关的保守 token 估算
+│   ├── storage.py           #   SQLite 持久化与会话日志
+│   ├── prompts.py           #   分层提示词加载
+│   └── topology.py          #   拓扑快照查询（前端背景图）
+├── prompts/                 # 提示词正文：system / controller / final / compress（必需）
+├── skills/                  # 技能正文、参考文件与脚本（排障功能必需）
+├── frontend/                # 前端：静态页面 + Python 代理（必需）
+│   ├── config.json          #   功能开关：perception / deep_diagnosis（模拟页面）
+│   └── static/              #   页面与逻辑；diagnosis.js 消费 opencode 风格事件
+├── demo/                    # 【演示/Mock】联调演示专用，正式运行不需要，可不迁移
+│   ├── demo_mcp_server.py   #   模拟 MCP 服务（无真实设备时的假数据）
+│   ├── run_walkthrough.py   #   固定决策全流程演示（无模型时验证链路）
+│   ├── walkthrough.toml     #   演示专用配置（独立端口与数据目录）
+│   └── README.md            #   演示说明
+├── data/                    # 【运行数据】已被 .gitignore 忽略，不要提交
+│   ├── agent.sqlite3        #   会话/消息/事件数据库（首次运行自动创建）
+│   └── sessions/<会话ID>/    #   session.log 与 results/ 完整工具结果
+├── BACKEND.md               # 后端手册：事件协议、参数调整、接口明细
+└── AGENTS.md                # 项目开发约定
 ```
 
-`session.log` 每行是一条 JSON，记录用户消息、决策说明、工具调用、工具结果片段和回答。
-每条包含原始 `session_id`；用 `run_id` 区分同一会话的不同轮次。超长原文放在同目录的 `results/`，通过 `artifact_id` 对应。
-目录直接使用调用方的 session_id，便于定位。例如会话 dcn-001 的日志位于 data/sessions/dcn-001/session.log。为兼容 Windows/Linux，ID 只允许字母、数字及 _ . -，不能以点开头或结尾，不能使用 CON、NUL、COM1 等 Windows 保留名称，也不能与已有 ID 仅大小写不同。
-SQLite 用于程序读取会话状态，日志用于人排查问题。进程启动和 HTTP 服务异常仍输出到终端。
+## 迁移后如何运行（正式功能）
 
-不保留 `tests/`、`__init__.py` 或测试日志。Python 3.11+ 支持当前目录作为命名空间包；在项目根目录导入 `dcn_agent` 即可。
-`python run_server.py` 已关闭字节码缓存；独立执行模块可用下面示例中的 `-B`，同样不生成 `__pycache__`。
+正式运行只需要 `dcn_agent/`、`frontend/`、`prompts/`、`skills/`、根目录入口脚本和 `config.toml`，
+不依赖 `demo/` 目录（核心代码对它零引用），也不需要携带本地的 `data/`（运行时自动生成）。
 
-## Linux 迁移
+1. **安装依赖**（Python 3.10+，任意 conda/venv 环境均可，不依赖环境名）：
 
-复制项目源码、配置、技能和提示词；如需保留会话，停服后一起复制整个 `data/`。
-目标机器使用 Python 3.11+ 的 conda `agent` 环境，首次没有此环境时先执行 `conda create -n agent python=3.12`。
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+
+2. **配置 `config.toml`**，改两处即可跑起来：
+
+   - `[model]`：模型服务地址和名称。默认 Ollama（`transport = "ollama"`，`base_url` 填
+     `http://<模型机>:11434/v1`）；模型服务提供 OpenAI 兼容接口时改 `transport = "openai"`。
+   - `[mcp.servers.*]`：真实 MCP 的地址和工具白名单；没有 MCP 也能用普通问答和技能，
+     只是排障工具不可用。前端拓扑图读取 `[topology]` 指定的三个查询工具。
+
+3. **分别启动两个服务**（接入真实 MCP 时无需启动任何 demo 组件）：
+
+   ```bash
+   python run_server.py      # 后端，默认 0.0.0.0:8080
+   python frontend/app.py    # 前端，默认 0.0.0.0:8090
+   ```
+
+   本机访问 http://127.0.0.1:8090 ，局域网设备访问 `http://服务器局域网IP:8090`。
+   浏览器经前端代理连接后端，模型和 MCP 地址可继续使用服务器本机地址。
+
+4. **验证**：
+
+   ```bash
+   curl http://127.0.0.1:8080/health                                   # 进程与配置检查
+   python print_stream_events.py "解释一下 EVPN" --session-id test-001  # 核对 SSE 事件字段
+   python chat_client.py "解释一下 EVPN" --session-id dcn-001          # 命令行对话
+   ```
+
+   `print_stream_events.py` 会按 `opencode_output_template.log` 同款格式逐条打印事件
+   （默认折叠回答增量，加 `--full` 全量打印），可直接用于迁移后的字段核对。
+
+命令行请求也支持多轮：相同 `--session-id` 延续历史。接口为 `POST /v1/chat/stream`，
+请求体包含 `session_id` 和 `message`，响应为 SSE；事件协议与字段表见 [后端手册](BACKEND.md)。
+
+## 演示模式（Mock，与正式功能隔离）
+
+`demo/` 目录全部是联调演示，**与本机没有模型服务时的验证方式**：
 
 ```bash
-conda activate agent
-python -m pip install -r requirements.txt
-# 按实际部署地址配置；本机服务才使用 localhost
-export MCP_SERVER_URL="http://localhost:8000/mcp"
-export OLLAMA_BASE_URL="http://localhost:11434/v1"
-python run_server.py
+python demo/run_walkthrough.py        # 固定决策 + 真实工具执行，覆盖技能/脚本/MCP/压缩/SSE
+python demo/run_walkthrough.py --model # 换用 config.toml 里的真实模型自主排查
+python demo/demo_mcp_server.py        # 单独启动模拟 MCP（配合 run_server.py 联调）
 ```
 
-配置文件中的相对目录以该配置文件所在目录为基准。Skill 脚本使用 `skills.python_path` 指定的 Python（留空沿用后端解释器），不依赖 Windows 命令。输出直接落盘，长结果按需检索。
+- 演示使用独立端口（18080/18090/18000）和独立数据目录 `data/demo/`，不影响正式服务。
+- 固定决策模式（`WalkthroughModel`）**不代表大模型自主排障能力**，只用于链路验收。
+- 迁移时如不需要演示，可不提交/不拷贝 `demo/` 目录；如已入库想移除：
+  `git rm -r --cached demo/` 并在 `.gitignore` 中加入 `demo/`。
 
-`skills.python_path` 默认为空，技能脚本自动使用启动后端的 Python。切换机器或 Python 环境时，无需修改此配置；进入目标环境后执行 `python run_server.py` 即可。只有需要让技能脚本使用另一个 Python 环境时，才在 `config.toml` 中填写该字段。
-VS Code 中选择本机的 `agent` 解释器即可，项目不再保存个人电脑的解释器绝对路径。
+## 提交与迁移清单
 
-## 安装
+| 内容 | 是否提交 | 说明 |
+| --- | --- | --- |
+| `dcn_agent/`、`frontend/`、`prompts/`、`skills/`、根目录脚本、`config.toml`、`requirements.txt`、文档 | 提交 | 正式功能全部依赖这些 |
+| `data/` | 不提交 | 已被 `.gitignore` 忽略；含本地会话、测试产生的日志与 SQLite |
+| `demo/` | 可选 | 演示/Mock 专用；核心零依赖，不想带 mock 就按上面命令移除 |
+| 前端"隐患感知/深度诊断"页面 | 保留但可关闭 | 前端内置模拟界面，`frontend/config.json` 中 `features.perception=false`、`features.deep_diagnosis=false` 即隐藏，与后端无关 |
 
-在项目目录执行（Windows PowerShell）：
+## 配置
 
-```powershell
-conda activate agent
-python -m pip install -r requirements.txt
-```
+配置集中在 `config.toml`，修改后重启对应服务。相对目录以配置文件所在目录为基准；
+可通过 `DCN_CONFIG` 环境变量指定其他 TOML（自定义文件只需填写要覆盖的字段）。
 
-后续命令均在 `conda activate agent` 后运行。
+| 配置项 | 用途 | 默认值 |
+| --- | --- | --- |
+| `server.host` / `server.port` | 后端监听地址、端口 | `0.0.0.0` / `8080` |
+| `frontend.host` / `frontend.port` | 前端监听地址、端口 | `0.0.0.0` / `8090` |
+| `frontend.backend_url` | 前端代理目标；空值自动跟随后端地址和端口 | `""` |
+| `model.transport` | `ollama` 走原生 `/api/chat`（num_ctx 生效）；`openai` 走 `/v1` 兼容接口 | `ollama` |
+| `model.base_url` / `model.model` | 模型服务地址、模型名称 | 本机 Ollama / `qwen2.5:3b` |
+| `mcp.servers.<name>.url` | MCP 服务地址，名称用于 `mcp.call` 的 server 参数 | 无 |
+| `mcp.servers.<name>.allowed_tools` | 工具白名单；空列表允许全部 | `[]` |
+| `skills.python_path` | 技能脚本解释器；空值使用后端当前 Python | `""` |
+| `topology.*` | 前端拓扑使用的 MCP 服务名与三个查询工具名 | demo 工具名 |
 
-## MCP：Streamable HTTP
+例如更换后端端口只需修改 `server.port`，前端和命令行客户端自动跟随。分机部署时填写
+`frontend.backend_url`。Ollama 的监听端口由 Ollama 管理，本项目只配置连接地址。
+Windows/Linux 均在目标 Python 环境中运行相同启动命令，无需填写本机解释器路径。
 
-使用完整的 MCP 服务地址（路径由服务端决定）：
-
-```powershell
-$env:MCP_SERVER_URL = "http://localhost:8000/mcp"
-# 如果服务需要 Bearer Token：
-# $env:MCP_API_TOKEN = "你的 Token"
-python -B -m dcn_agent.mcp_calling
-```
-
-以上地址只是示例，需要替换为真实地址。直接运行脚本会列出工具名称、描述和参数 schema。
-也可以通过函数的 `server_url=`、`headers=` 显式传配置；显式请求头覆盖同名默认请求头。
-脚本读取进程环境变量，不自动加载 `.env` 文件。
-
-在其他脚本中调用：
-
-```python
-import asyncio
-import json
-from dcn_agent.mcp_calling import multi_mcp_calling
-
-async def main():
-    res = await multi_mcp_calling([
-        {"name": "queryXX", "param": {"paraname1": "value1", "paraname2": "value2"}}
-    ])
-    print(json.dumps(res, ensure_ascii=False, indent=2))
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-`queryXX`、参数名和参数值是占位示例，请用服务端真实工具替换。
-每个输入对应一个返回项，顺序不变，重复调用同名工具不会覆盖结果：
-
-```json
-[
-  {
-    "name": "queryXX",
-    "ok": true,
-    "text": "工具返回的文本",
-    "data": {"status": "正常"},
-    "content": [{"type": "text", "text": "工具返回的文本"}],
-    "error": null
-  }
-]
-```
-
-- `data` 保存服务返回的 `structuredContent`，未提供时为 `None`；不会猜测文本的 JSON 含义。
-- `content` 保留全部内容块，包括图片、资源等非文本结果；`text` 只拼接文本块。
-- 工具错误、调用超时或连接失败通过 `ok=False`、`error` 返回；输入/配置错误抛出 `ValueError`。
-- 默认 `timeout=60` 秒，限制初始化和每次工具调用（不含并发排队时间）；并非整个批次总时限。
-- 默认 `max_concurrency=1`，单项失败仍继续后续项。多个独立查询可传 `max_concurrency=4`。
-- 一个批次共用一个 MCP 会话；本接口调用同一服务的多个工具，不做跨服务自动路由。
-- 不自动重试。超时/断连仅代表客户端未取得结果，不能据此判断服务端操作没有执行。
-- `await list_mcp_tools()` 可取得工具及输入 schema；它的连接错误直接向调用方抛出。
-
-## Ollama 大模型
-
-默认配置与你提供的一致：
-
-```text
-base_url = http://localhost:11434/v1
-api_key = ollama
-model = qwen2.5:3b
-```
-
-确保 Ollama 已运行且已拉取 `qwen2.5:3b`。直接运行默认流式打印：
-
-```powershell
-python -B -m dcn_agent.llm_calling "请介绍一下 DCN 网络故障排查"
-python -B -m dcn_agent.llm_calling "test" --no-stream
-```
-
-同步调用：
-
-```python
-from contextlib import closing
-from dcn_agent.llm_calling import call_llm, stream_llm
-
-messages = [
-    {"role": "system", "content": "你是 DCN 网络运维助手。"},
-    {"role": "user", "content": "test"},
-]
-answer = call_llm(messages)
-print(answer)
-
-parts = []
-with closing(stream_llm(messages, temperature=0.2)) as chunks:
-    for chunk in chunks:
-        print(chunk, end="", flush=True)
-        parts.append(chunk)
-print()
-full_answer = "".join(parts)
-```
-
-与异步 MCP 集成时使用异步接口：
-
-```python
-import asyncio
-from contextlib import aclosing
-from dcn_agent.llm_calling import acall_llm, astream_llm
-
-async def main():
-    answer = await acall_llm("test")
-    print(answer)
-    async with aclosing(astream_llm("test")) as chunks:
-        async for chunk in chunks:
-            print(chunk, end="", flush=True)
-    print()
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-四个函数都接受字符串或 `messages` 列表，可显式设置 `model`、`base_url`、`api_key`、
-`timeout`（默认 120 秒，HTTP 超时，不是整段生成的总时限），及兼容的 `temperature`、`max_tokens` 等参数。
-也可设置 `OLLAMA_BASE_URL`、`OLLAMA_API_KEY`、`OLLAMA_MODEL` 环境变量。
-连接/模型错误保留 OpenAI SDK 原始异常，便于上层处理；不自动重试，流式中断不会重新生成并重复输出。
-流式函数返回文本增量，不自动打印、不存储对话历史，也不自动执行模型输出的工具调用。
-如提前 `break`，请像示例一样用 `closing` / `aclosing` 及时释放连接。
-
-## 接口参考
-
-- [OpenAI Docs：Chat Completions 流式事件](https://developers.openai.com/api/reference/resources/chat/subresources/completions/streaming-events)
-- [MCP 官方 Python SDK v1 客户端文档](https://github.com/modelcontextprotocol/python-sdk/blob/v1.x/docs/client.md)
-
-依赖限定 MCP SDK 1.x，以匹配当前脚本采用的 `ClientSession` 接口。
+更多内容：[后端手册](BACKEND.md)（事件协议、上下文压缩参数、MCP、artifact 检索、API 索引）、
+[前端说明](frontend/README.md)（事件展示、拓扑字段、样式入口）、[演示说明](demo/README.md)。

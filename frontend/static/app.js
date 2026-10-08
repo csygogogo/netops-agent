@@ -675,13 +675,15 @@ function appendAgentStep(run, payload) {
 function parseSseBlock(block) {
   const lines = block.split("\n");
   let event = "message";
+  let id = 0;
   const data = [];
   lines.forEach(line => {
     if (line.startsWith("event:")) event = line.slice(6).trim();
+    if (line.startsWith("id:")) id = Number(line.slice(3).trim()) || 0;
     if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
   });
   if (!data.length) return null;
-  try { return { event, data: JSON.parse(data.join("\n")) }; }
+  try { return { event, id, data: JSON.parse(data.join("\n")) }; }
   catch { return null; }
 }
 

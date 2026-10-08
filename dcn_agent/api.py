@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+from asyncio import TimeoutError
+from async_timeout import timeout as async_timeout
 import hmac
 import os
 from contextlib import aclosing, asynccontextmanager, suppress
@@ -11,8 +13,9 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 
-from .config import Settings, load_settings
+from .config import load_settings
 from .engine import Agent
+from .events import envelope
 from .storage import SessionBusy, encode
 from .topology import snapshot
 
@@ -43,14 +46,21 @@ def chat_response(agent, state, running):
     queue: asyncio.Queue = asyncio.Queue(maxsize=32)  # 限制未发送事件数量
 
     async def produce():
-        """将智能体事件推入队列，慢客户端会限制生产速度。"""
+        """将智能体事件连同序号推入队列，慢客户端会限制生产速度。"""
+        cancelled = False
         try:
+            seq = 0
             async with aclosing(agent.stream(state)) as stream:
                 async for event in stream:
-                    await queue.put(event)
+                    # 引擎为每个输出事件递增编号；这里按输出顺序重新计数即与其一致。
+                    seq += 1
+                    await queue.put({"seq": seq, "payload": event})
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
         finally:
             # 取消时不等待满队列腾出位置。
-            if asyncio.current_task().cancelling() == 0:
+            if not cancelled:
                 await queue.put(None)
 
     task = asyncio.create_task(produce())
@@ -66,26 +76,28 @@ def chat_response(agent, state, running):
         agent.store.finish_run(state.run_id, "cancelled")
 
     async def stream_sse():
-        """将事件编码为 SSE，空闲时发送心跳。"""
+        """将协议事件编码为 SSE，空闲时发送 server.heartbeat 事件。"""
         delivered_seq = 0
+        yield "data: " + encode(envelope("server.connected", {})) + "\n\n"
         try:
             while True:
                 if task.done() and queue.empty():
                     # 引擎已保存取消事件；补发给仍连接的客户端。
-                    for event in agent.store.events(state.run_id, state.user_id, delivered_seq, 1000):
-                        yield f"id: {event['seq']}\nevent: {event['type']}\ndata: {encode(event)}\n\n"
+                    for record in agent.store.events(state.run_id, state.user_id, delivered_seq, 1000):
+                        delivered_seq = record["seq"]
+                        yield f"id: {record['seq']}\ndata: {encode(record['payload'])}\n\n"
                     break
                 try:
                     item = await asyncio.wait_for(queue.get(), agent.settings.agent.heartbeat_seconds)
                 except TimeoutError:
                     if task.done():
                         continue
-                    yield ": heartbeat\n\n"
+                    yield "data: " + encode(envelope("server.heartbeat", {})) + "\n\n"
                     continue
                 if item is None:
                     break
                 delivered_seq = item["seq"]
-                yield f"id: {item['seq']}\nevent: {item['type']}\ndata: {encode(item)}\n\n"
+                yield f"id: {item['seq']}\ndata: {encode(item['payload'])}\n\n"
         finally:
             await cleanup()
 
@@ -95,7 +107,7 @@ def chat_response(agent, state, running):
     }, background=BackgroundTask(cleanup))
 
 
-def create_app(settings: Settings | None = None, model=None) -> FastAPI:
+def create_app(settings=None, model=None) -> FastAPI:
     """创建业务接口及共享智能体，默认不启用自动接口文档。"""
     settings = settings or load_settings()
     agent = Agent(settings, model=model)
@@ -210,7 +222,7 @@ def create_app(settings: Settings | None = None, model=None) -> FastAPI:
     async def topology(fabric_id: str = "", user_id: str = Depends(user)):
         """页面背景查询与诊断共用 MCP 配置和允许名单。"""
         try:
-            async with asyncio.timeout(settings.agent.tool_timeout_seconds):
+            async with async_timeout(settings.agent.tool_timeout_seconds):
                 return await snapshot(agent.tools, settings.topology, fabric_id)
         except (ValueError, TimeoutError) as exc:
             raise HTTPException(502, f"拓扑查询失败：{exc}") from exc

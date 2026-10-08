@@ -159,11 +159,11 @@ class Store:
             return [dict(row) for row in db.execute(
                 "SELECT * FROM messages WHERE session_id=? AND id>? ORDER BY id LIMIT ?", (session_id, after, limit))]
 
-    def event(self, payload: dict):
-        """保存与 SSE 输出相同的事件，方便查询和按日志排查。"""
+    def event(self, session_id: str, run_id: str, seq: int, payload: dict):
+        """保存与 SSE 输出相同的协议事件，方便查询和按日志排查。"""
         with self.connect() as db:
-            db.execute("INSERT INTO events VALUES(?,?,?)", (payload["run_id"], payload["seq"], encode(payload)))
-        self.log(payload["session_id"], payload)
+            db.execute("INSERT INTO events VALUES(?,?,?)", (run_id, seq, encode(payload)))
+        self.log(session_id, {"run_id": run_id, "seq": seq, "payload": payload})
 
     def run(self, run_id: str, user_id: str):
         """检查用户归属并读取运行状态。"""
@@ -175,11 +175,11 @@ class Store:
         return dict(row)
 
     def events(self, run_id: str, user_id: str, after: int, limit: int):
-        """按 seq 分页读取本轮结构化事件。"""
+        """按 seq 分页读取本轮协议事件，返回序号与事件体的配对。"""
         self.run(run_id, user_id)
         with self.connect() as db:
-            return [json.loads(row[0]) for row in db.execute(
-                "SELECT payload FROM events WHERE run_id=? AND seq>? ORDER BY seq LIMIT ?", (run_id, after, limit))]
+            return [{"seq": seq, "payload": json.loads(payload)} for seq, payload in db.execute(
+                "SELECT seq,payload FROM events WHERE run_id=? AND seq>? ORDER BY seq LIMIT ?", (run_id, after, limit))]
 
     def user_prompt(self, user_id: str) -> str:
         """读取用户长期提示词，未设置时返回空字符串。"""

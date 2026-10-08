@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from async_timeout import timeout as async_timeout
 import json
 import math
 import os
@@ -14,6 +15,11 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
+from anyio import create_task_group
+try:
+    from builtins import ExceptionGroup
+except ImportError:
+    from exceptiongroup import ExceptionGroup
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -42,7 +48,7 @@ async def _session(url: str, headers: httpx.Headers, timeout: float) -> AsyncIte
     async with httpx.AsyncClient(headers=headers, timeout=httpx.Timeout(timeout)) as http:
         async with streamable_http_client(url, http_client=http) as (read, write, _):
             async with ClientSession(read, write, read_timeout_seconds=timedelta(seconds=timeout)) as session:
-                async with asyncio.timeout(timeout):
+                async with async_timeout(timeout):
                     await session.initialize()
                 yield session
 
@@ -102,7 +108,7 @@ async def multi_mcp_calling(
                 async with semaphore:
                     call = normalized[index]
                     try:
-                        async with asyncio.timeout(timeout):
+                        async with async_timeout(timeout):
                             result = await session.call_tool(call["name"], arguments=call["param"])
                         content = [block.model_dump(mode="json", by_alias=True, exclude_none=True)
                                    for block in result.content]
@@ -116,9 +122,9 @@ async def multi_mcp_calling(
                         results[index] = failure(index, _error_text(exc))
 
             # TaskGroup 在退出 session 前回收所有调用，外部取消时不会遗留任务。
-            async with asyncio.TaskGroup() as group:
+            async with create_task_group() as group:
                 for index in range(len(normalized)):
-                    group.create_task(invoke(index))
+                    group.start_soon(invoke, index)
     except Exception as exc:
         # 保留已收到的结果；仅为没有完成的调用补充连接错误。
         for index, result in enumerate(results):
@@ -137,7 +143,7 @@ async def list_mcp_tools(
     async with _session(url, auth_headers, timeout) as session:
         cursor = None
         while True:
-            async with asyncio.timeout(timeout):
+            async with async_timeout(timeout):
                 page = await session.list_tools(cursor=cursor)
             tools.extend(tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in page.tools)
             cursor = page.nextCursor

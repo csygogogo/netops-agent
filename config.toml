@@ -45,7 +45,7 @@ script_timeout_seconds = 300
 directory = "prompts"
 
 [server]
-host = "127.0.0.1"
+host = "0.0.0.0"
 port = 8080
 # 可选：设置 DCN_API_TOKEN 环境变量，所有 /v1 接口要求 Bearer Token。
 api_token_env = "DCN_API_TOKEN"
@@ -58,9 +58,10 @@ api_token_env = "DCN_API_TOKEN"
 # allowed_tools = []  # 空列表允许该服务的所有工具
 
 [frontend]
-host = "127.0.0.1"
+host = "0.0.0.0"
 port = 8090
-backend_url = "http://127.0.0.1:8080"
+# 留空自动使用 server.host/port；前后端分机部署时填写后端地址。
+backend_url = ""
 
 # 前端拓扑只调用这里配置的三个查询工具，替换真实服务时修改名称即可。
 [topology]
@@ -71,5 +72,5 @@ topology_tool = "query_fabric_topology"
 device_page_size = 1000
 
 [mcp.servers.demo]
-url = "http://127.0.0.1:8000/mcp"
+url = "http://127.0.0.1:8001/mcp"
 allowed_tools = ["list_fabrics", "query_devices", "query_fabric_topology", "get_interface_status", "get_device_logs", "start_demo_case", "get_service_path", "get_interface_counters", "repair_demo_link", "get_service_status"]

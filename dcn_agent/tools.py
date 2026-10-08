@@ -7,7 +7,6 @@ from jsonschema import Draft202012Validator
 from referencing import Registry
 
 from .mcp_calling import list_mcp_tools, multi_mcp_calling
-from .config import Settings
 from .storage import encode
 
 
@@ -41,7 +40,7 @@ SPECS = {
 
 class Tools:
     """校验并分发本地技能、结果检索与远端 MCP 调用。"""
-    def __init__(self, settings: Settings, skills, artifacts):
+    def __init__(self, settings, skills, artifacts):
         self.settings = settings
         self.skills = skills
         self.artifacts = artifacts

@@ -1,9 +1,21 @@
 """多 Pod 双故障模拟 MCP；不会访问真实设备，修复仅作用于独立演示实例。"""
 from uuid import uuid4
 from typing import Literal
-from mcp.server.fastmcp import FastMCP
+from pathlib import Path
+from urllib.parse import urlsplit
+import sys
 
-server = FastMCP("DCN Demo", host="127.0.0.1", port=8000, json_response=True)
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from mcp.server.fastmcp import FastMCP
+from dcn_agent.config import load_settings
+
+# 监听地址与客户端共用 demo 服务 URL，端口和路径只配置一次。
+endpoint = urlsplit(load_settings().mcp.servers["demo"].url)
+if endpoint.scheme != "http" or not endpoint.hostname or endpoint.query or endpoint.fragment:
+    raise ValueError("本机模拟 MCP 地址必须为 http://主机:端口/路径")
+server = FastMCP("DCN Demo", host=endpoint.hostname, port=endpoint.port or 80,
+                 streamable_http_path=endpoint.path or "/mcp", json_response=True)
 FABRICS = [
     {"fabricId": "fabric-a", "nativeId": "native-a", "fabricName": "DEMO · 多 Pod 业务网"},
     {"fabricId": "fabric-b", "nativeId": "native-b", "fabricName": "DEMO · 独立验证网"},

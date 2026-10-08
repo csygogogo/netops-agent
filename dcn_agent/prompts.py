@@ -1,10 +1,9 @@
-from .config import Settings
 from .storage import encode
 
 
 class Prompts:
     """启动时读取系统与阶段提示词，运行时组合用户和会话偏好。"""
-    def __init__(self, settings: Settings):
+    def __init__(self, settings):
         self.allow_clarification = settings.agent.allow_clarification
         self.directory = settings.prompts.directory
         self.parts = {name: (self.directory / f"{name}.md").read_text(encoding="utf-8")

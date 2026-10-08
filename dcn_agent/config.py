@@ -1,20 +1,20 @@
 """配置默认值只保留在 config.toml；这里负责读取和基本检查。"""
 import math
 import os
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib  # Python 3.10 使用同一 TOML 读取接口。
 from pathlib import Path
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent  # 项目根目录，不依赖启动时的工作目录
-Settings = SimpleNamespace
 
 
-class ModelConfig(SimpleNamespace):
-    """模型配置，集中计算可用于输入的上下文预算。"""
-    @property
-    def input_budget(self):
-        """窗口减去输出预留和安全余量，得到输入预算。"""
-        return self.context_window_tokens - self.max_output_tokens - self.safety_margin_tokens
+def server_url(host, port):
+    """把监听地址转为本机可访问的 HTTP 地址，兼容 IPv6。"""
+    host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
+    return f"http://{'[' + host + ']' if ':' in host else host}:{port}"
 
 
 def load_settings(path=None):
@@ -45,11 +45,18 @@ def load_settings(path=None):
                 if not math.isfinite(value) or value < 0 or (value == 0 and not zero_allowed):
                     raise ValueError(f"无效配置值: {section}.{key}")
 
-    settings = Settings(**{name: SimpleNamespace(**values) for name, values in data.items()})
-    settings.model = ModelConfig(**data["model"])
+    settings = SimpleNamespace(**{name: SimpleNamespace(**values) for name, values in data.items()})
+    for section in ("server", "frontend"):
+        port = getattr(settings, section).port
+        if type(port) is not int or not 1 <= port <= 65535:
+            raise ValueError(f"{section}.port 必须为 1..65535 的整数")
+    if not settings.frontend.backend_url:
+        settings.frontend.backend_url = server_url(settings.server.host, settings.server.port)
     if not isinstance(settings.agent.allow_clarification, bool):
         raise ValueError("agent.allow_clarification 必须为 true 或 false")
     model = settings.model
+    # 配置加载后计算输入预算，无需单独定义配置类。
+    model.input_budget = model.context_window_tokens - model.max_output_tokens - model.safety_margin_tokens
     if model.transport not in {"ollama", "openai"}:
         raise ValueError("model.transport 应为 ollama 或 openai")
     if model.input_budget < 2048 or model.summary_tokens > model.input_budget // 3:
