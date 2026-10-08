@@ -37,7 +37,16 @@ X-User-ID: local
 {"message":"查询 leaf-01 的 Ethernet1/1 接口状态","session_id":"dcn-001"}
 ```
 
-`session_id` 必传，由调用方生成并保持稳定。首次收到某个 ID 时自动建立会话；以后相同 ID 延续历史，不同 ID 分开存储。响应头 `X-Session-ID` 和 `X-Run-ID` 返回会话与本轮执行 ID。
+`session_id` 必传。推荐先调用创建接口获取随机 UUID，再带入流式接口：
+
+```http
+POST /v1/session
+X-User-ID: local
+
+→ {"session_id":"0b5f2c1e-8a4d-4f6b-9c3e-7d2a1f5b8e90"}
+```
+
+也可以由调用方自行生成并保持稳定（UUID 或 1..128 位字母、数字及 `- _ .`）。首次收到某个 ID 时自动建立会话；以后相同 ID 延续历史，不同 ID 分开存储。响应头 `X-Session-ID` 和 `X-Run-ID` 返回会话与本轮执行 ID。
 后续请求带同一个 session_id 和 X-User-ID 即可延续历史。
 session_id 支持 1..128 个字母、数字及 `- _ .`，建议使用调用方生成的 UUID；不能以点开头或结尾，不能包含冒号、空白或路径分隔符，不能使用 CON、NUL、COM1 等 Windows 保留名称。不同会话不能只靠大小写区分，后续请求应使用同一个完整 ID。
 浏览器调用时用 `fetch` 读取 POST 响应流；原生 `EventSource` 只支持 GET。
@@ -335,6 +344,7 @@ MCP SDK 在接收时仍会将单次结果缓存在内存；该机制限制的是
 
 | 方法与路径 | 用途 |
 | --- | --- |
+| POST /v1/session | 生成随机 UUID 会话 ID 并预创建会话，供 /v1/chat/stream 使用 |
 | POST /v1/chat/stream | 输入 message 和必填 session_id，返回 SSE |
 | GET /v1/sessions/{id} | 查看会话摘要、提示词和激活技能 |
 | GET /v1/sessions/{id}/messages | 完整用户/助手消息，after/limit 分页 |

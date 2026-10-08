@@ -85,8 +85,9 @@ DCN_Agent/
    `print_stream_events.py` 会按 `opencode_output_template.log` 同款格式逐条打印事件
    （默认折叠回答增量，加 `--full` 全量打印），可直接用于迁移后的字段核对。
 
-命令行请求也支持多轮：相同 `--session-id` 延续历史。接口为 `POST /v1/chat/stream`，
-请求体包含 `session_id` 和 `message`，响应为 SSE；事件协议与字段表见 [后端手册](BACKEND.md)。
+命令行请求也支持多轮：相同 `--session-id` 延续历史。调用方可先 `POST /v1/session` 获取随机
+UUID 会话 ID，再作为 `POST /v1/chat/stream` 的输入（请求体包含 `session_id` 和 `message`，
+响应为 SSE）；事件协议与字段表见 [后端手册](BACKEND.md)。
 
 ## 演示模式（Mock，与正式功能隔离）
 

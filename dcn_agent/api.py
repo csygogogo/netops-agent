@@ -7,6 +7,7 @@ from async_timeout import timeout as async_timeout
 import hmac
 import os
 from contextlib import aclosing, asynccontextmanager, suppress
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -154,6 +155,13 @@ def create_app(settings=None, model=None) -> FastAPI:
     async def health():
         return {"status": "ok", "model": settings.model.model, "mcp_servers": list(settings.mcp.servers),
                 "skills": len(agent.skills.catalog), "skill_errors": agent.skills.errors}
+
+    @app.post("/v1/session")
+    async def create_session(user_id: str = Depends(user)):
+        """生成 UUID 会话 ID 并预创建会话；调用方再把它作为 /v1/chat/stream 的 session_id。"""
+        session_id = str(uuid4())
+        session = agent.store.ensure_session(session_id, user_id)
+        return {"session_id": session["id"]}
 
     @app.get("/v1/sessions/{session_id}")
     async def get_session(session_id: str, user_id: str = Depends(user)):
