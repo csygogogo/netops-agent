@@ -23,8 +23,8 @@ def main():
     token = os.getenv(settings.server.api_token_env)
     if token:
         headers["Authorization"] = "Bearer " + token
-    with httpx.stream("POST", url + f"/session/{args.session_id}/prompt_async", headers=headers,
-                      json={"message": args.message}, timeout=180) as response:
+    with httpx.stream("POST", url + "/v1/chat/stream", headers=headers,
+                      json={"message": args.message, "session_id": args.session_id}, timeout=180) as response:
         response.raise_for_status()
         print("session_id:", response.headers["X-Session-ID"])
         for line in response.iter_lines():

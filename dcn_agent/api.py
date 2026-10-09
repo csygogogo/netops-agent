@@ -1,4 +1,4 @@
-"""通过 POST 返回 SSE；有界队列控制积压，并在空闲时发送心跳。"""
+"""SSE 接口层：同步流式问答与异步提交 + 全局事件总线两种调用模式。"""
 from __future__ import annotations
 
 import asyncio
@@ -10,7 +10,7 @@ from contextlib import aclosing, asynccontextmanager, suppress
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 
@@ -21,15 +21,63 @@ from .storage import SessionBusy, encode
 from .topology import snapshot
 
 
-class ChatInput(BaseModel):
-    """聊天输入；会话 ID 在 URL 路径中，请求体禁止额外字段。"""
+class LegacyChatInput(BaseModel):
+    """同步流式入口 /v1/chat/stream 的输入；session_id 在请求体中。"""
     model_config = ConfigDict(extra="forbid")
     message: str = Field(min_length=1, max_length=100000)
-
-
-class LegacyChatInput(ChatInput):
-    """旧版 /v1/chat/stream 的输入；session_id 在请求体中。"""
     session_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-][A-Za-z0-9_.-]*$")
+
+
+class TextPart(BaseModel):
+    """prompt_async 的文本分段，与 opencode 客户端的 parts 数组一致。"""
+    model_config = ConfigDict(extra="forbid")
+    type: str = Field(pattern=r"^text$")
+    text: str = Field(min_length=1, max_length=100000)
+
+
+class AsyncPromptInput(BaseModel):
+    """prompt_async 输入；各 text 分段按序拼接为用户问题。"""
+    model_config = ConfigDict(extra="forbid")
+    parts: list[TextPart] = Field(min_length=1)
+
+
+class EventBus:
+    """进程内事件广播：后台运行任务发布，GET /event 的订阅者各自持有队列。"""
+
+    def __init__(self):
+        self.subscribers: set[asyncio.Queue] = set()
+
+    def subscribe(self) -> asyncio.Queue:
+        """新订阅者加入广播列表，返回自己的事件队列。"""
+        queue: asyncio.Queue = asyncio.Queue()
+        self.subscribers.add(queue)
+        return queue
+
+    def unsubscribe(self, queue: asyncio.Queue):
+        """连接断开时移除队列，后续事件不再堆积。"""
+        self.subscribers.discard(queue)
+
+    def publish(self, payload: dict):
+        """向所有订阅者广播一条协议事件。"""
+        for queue in self.subscribers:
+            queue.put_nowait(payload)
+
+
+async def run_prompt(agent: Agent, state, bus: EventBus, running: dict):
+    """后台执行一轮并发布事件到总线；提交方断开不影响执行。"""
+    published = 0
+    try:
+        # 稍等评测类客户端在提交后订阅 /event，避免其错过开头事件。
+        await asyncio.sleep(0.5)
+        async with aclosing(agent.stream(state)) as stream:
+            async for event in stream:
+                published += 1
+                bus.publish(event)
+    finally:
+        running.pop(state.run_id, None)
+        # 取消路径引擎只保存不输出；补发未送达的收尾事件，保证 /event 总能等到 session.idle。
+        for record in agent.store.events(state.run_id, state.user_id, published, 1000):
+            bus.publish(record["payload"])
 
 
 class PromptInput(BaseModel):
@@ -117,6 +165,7 @@ def create_app(settings=None, model=None) -> FastAPI:
     settings = settings or load_settings()
     agent = Agent(settings, model=model)
     running: dict[str, asyncio.Task] = {}  # run_id 到后台任务的映射
+    bus = EventBus()  # 全局事件总线，供 GET /event 订阅
 
     @asynccontextmanager
     async def lifespan(app):
@@ -163,10 +212,10 @@ def create_app(settings=None, model=None) -> FastAPI:
     @app.post("/session")
     @app.post("/v1/session", deprecated=True)  # 旧路径兼容，过渡期后可移除
     async def create_session(user_id: str = Depends(user)):
-        """生成 UUID 会话 ID 并预创建会话；调用方再把它代入 /session/{id}/prompt_async。"""
+        """生成 UUID 会话 ID 并预创建会话；id 与 session_id 同值，兼容两类调用方。"""
         session_id = str(uuid4())
         session = agent.store.ensure_session(session_id, user_id)
-        return {"session_id": session["id"]}
+        return {"id": session["id"], "session_id": session["id"]}
 
     @app.get("/v1/sessions/{session_id}")
     async def get_session(session_id: str, user_id: str = Depends(user)):
@@ -226,14 +275,37 @@ def create_app(settings=None, model=None) -> FastAPI:
         return await asyncio.to_thread(agent.artifacts.search, session_id, artifact_id, **body.model_dump())
 
     def start_chat(user_id: str, message: str, session_id: str):
-        """校验并占用会话，生成本轮 SSE 响应；新旧路径共用。"""
+        """校验并占用会话，生成本轮 SSE 响应；同步流式路径共用。"""
         state = agent.reserve(user_id, message, session_id)
         return chat_response(agent, state, running)
 
-    @app.post("/session/{session_id}/prompt_async")
-    async def chat(session_id: str, body: ChatInput, user_id: str = Depends(user)):
-        """会话 ID 由路径提供，请求体只含 message；启动本轮流式处理。"""
-        return start_chat(user_id, body.message, session_id)
+    @app.post("/session/{session_id}/prompt_async", status_code=204)
+    async def prompt_async(session_id: str, body: AsyncPromptInput, user_id: str = Depends(user)):
+        """异步提交问题：立即返回 204，本轮在后台执行，事件经 GET /event 推送。"""
+        message = "\n".join(part.text for part in body.parts).strip()
+        state = agent.reserve(user_id, message, session_id)
+        running[state.run_id] = asyncio.create_task(run_prompt(agent, state, bus, running))
+        return Response(status_code=204)
+
+    @app.get("/event")
+    async def event_stream():
+        """全局 SSE 事件流：先发 server.connected，空闲时发 server.heartbeat。"""
+        queue = bus.subscribe()
+
+        async def generate():
+            try:
+                yield "data: " + encode(envelope("server.connected", {})) + "\n\n"
+                while True:
+                    try:
+                        item = await asyncio.wait_for(queue.get(), settings.agent.heartbeat_seconds)
+                        yield f"data: {encode(item)}\n\n"
+                    except TimeoutError:
+                        yield "data: " + encode(envelope("server.heartbeat", {})) + "\n\n"
+            finally:
+                bus.unsubscribe(queue)
+
+        return StreamingResponse(generate(), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
     @app.post("/v1/chat/stream", deprecated=True)  # 旧路径兼容，过渡期后可移除
     async def legacy_chat(body: LegacyChatInput, user_id: str = Depends(user)):

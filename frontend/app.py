@@ -629,7 +629,7 @@ class DemoHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
-        if path.startswith("/v1/") or path.startswith("/session") or path == "/health":
+        if path.startswith("/v1/") or path.startswith("/session") or path in ("/event", "/health"):
             self.proxy_backend()
             return
         if path == "/api/health":

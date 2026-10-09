@@ -27,31 +27,44 @@ python chat_client.py "查询 leaf-01 的 Ethernet1/1 接口状态" --session-id
 python chat_client.py "继续检查相关日志" --session-id "dcn-001"
 ```
 
-HTTP 输入（会话 ID 在 URL 路径中，请求体只含 message）：
+支持两种调用模式，事件格式完全一致（opencode 风格信封）。
 
-```http
-POST /session/dcn-001/prompt_async
-Content-Type: application/json
-X-User-ID: local
-
-{"message":"查询 leaf-01 的 Ethernet1/1 接口状态"}
-```
-
-`session_id` 必传。推荐先调用创建接口获取随机 UUID，再代入流式接口路径：
+### 模式一：异步提交 + 全局事件流（opencode 客户端/评测系统）
 
 ```http
 POST /session
 X-User-ID: local
 
-→ {"session_id":"0b5f2c1e-8a4d-4f6b-9c3e-7d2a1f5b8e90"}
+→ 200 {"id":"0b5f2c1e-8a4d-4f6b-9c3e-7d2a1f5b8e90","session_id":"0b5f2c1e-..."}
 
 POST /session/0b5f2c1e-8a4d-4f6b-9c3e-7d2a1f5b8e90/prompt_async
-{"message":"..."}
+{"parts":[{"type":"text","text":"查询 leaf-01 的 Ethernet1/1 接口状态"}]}
+
+→ 204 No Content（本轮进入后台执行）
+
+GET /event
+→ text/event-stream：全局事件流，先发 server.connected，空闲时发 server.heartbeat；
+  本轮全部事件按序推送到该连接，session.idle（或 session.error）表示结束。
 ```
 
-也可以由调用方自行生成并保持稳定（UUID 或 1..128 位字母、数字及 `- _ .`）。首次收到某个 ID 时自动建立会话；以后相同 ID 延续历史，不同 ID 分开存储。响应头 `X-Session-ID` 和 `X-Run-ID` 返回会话与本轮执行 ID。
+- 提交后立即返回 204，执行与连接解耦；断开 `/event` 不取消本轮，取消走 `POST /v1/runs/{run_id}/cancel`。
+- `/event` 是进程级总线：所有会话的事件都会广播，调用方按 `properties.sessionID` 区分。
+- 后台任务启动前等待 0.5 秒，给"先提交、后订阅"的客户端留出连接时间；事件同时持久化，可随时用 `GET /v1/runs/{run_id}/events` 补读。
 
-过渡期兼容：旧路径 `POST /v1/session` 与 `POST /v1/chat/stream`（session_id 在请求体 `{"message":..., "session_id":...}` 中）仍然可用，内部转发到同一实现；待调用方全部迁移后可移除。
+### 模式二：同步流式（本项目前端与命令行客户端）
+
+```http
+POST /v1/chat/stream
+Content-Type: application/json
+X-User-ID: local
+
+{"message":"查询 leaf-01 的 Ethernet1/1 接口状态","session_id":"dcn-001"}
+
+→ text/event-stream：同样的协议事件在本请求的响应流上推送；
+  断开连接即取消本轮；响应头 X-Session-ID / X-Run-ID 返回会话与本轮执行 ID。
+```
+
+`session_id` 也可由调用方自行生成并保持稳定（UUID 或 1..128 位字母、数字及 `- _ .`）。首次收到某个 ID 时自动建立会话；以后相同 ID 延续历史，不同 ID 分开存储。
 后续请求带同一个 session_id 和 X-User-ID 即可延续历史。
 session_id 支持 1..128 个字母、数字及 `- _ .`，建议使用调用方生成的 UUID；不能以点开头或结尾，不能包含冒号、空白或路径分隔符，不能使用 CON、NUL、COM1 等 Windows 保留名称。不同会话不能只靠大小写区分，后续请求应使用同一个完整 ID。
 浏览器调用时用 `fetch` 读取 POST 响应流；原生 `EventSource` 只支持 GET。
@@ -349,9 +362,10 @@ MCP SDK 在接收时仍会将单次结果缓存在内存；该机制限制的是
 
 | 方法与路径 | 用途 |
 | --- | --- |
-| POST /session | 生成随机 UUID 会话 ID 并预创建会话，供 prompt_async 使用 |
-| POST /session/{session_id}/prompt_async | 路径携带 session_id，输入 message，返回 SSE |
-| POST /v1/session、POST /v1/chat/stream | 旧路径兼容（后者 session_id 在请求体中），过渡期后移除 |
+| POST /session | 生成随机 UUID 会话 ID 并预创建会话，返回 id 与 session_id |
+| POST /session/{session_id}/prompt_async | 异步提交：body 为 parts 文本分段，返回 204，事件走 /event |
+| GET /event | 全局 SSE 事件流（opencode 客户端/评测系统订阅） |
+| POST /v1/session、POST /v1/chat/stream | 同步流式入口（前端使用）；/v1/session 为旧路径兼容 |
 | GET /v1/sessions/{id} | 查看会话摘要、提示词和激活技能 |
 | GET /v1/sessions/{id}/messages | 完整用户/助手消息，after/limit 分页 |
 | PUT /v1/prompts/user | 设置用户提示词 |
