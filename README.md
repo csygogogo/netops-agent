@@ -78,7 +78,7 @@ DCN_Agent/
 
    ```bash
    curl http://127.0.0.1:8080/health                                   # 进程与配置检查
-   python print_stream_events.py "解释一下 EVPN" --session-id test-001  # 核对 SSE 事件字段
+   python print_stream_events.py "解释一下 EVPN"   # 不传 --session-id 时自动经 /v1/session 生成
    python chat_client.py "解释一下 EVPN" --session-id dcn-001          # 命令行对话
    ```
 
