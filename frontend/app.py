@@ -629,7 +629,7 @@ class DemoHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
-        if path.startswith("/v1/") or path == "/health":
+        if path.startswith("/v1/") or path.startswith("/session") or path == "/health":
             self.proxy_backend()
             return
         if path == "/api/health":
@@ -671,7 +671,7 @@ class DemoHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
-        if path.startswith("/v1/"):
+        if path.startswith("/v1/") or path.startswith("/session"):
             self.proxy_backend()
             return
         if path.startswith("/api/executions/") and path.endswith("/diagnose"):

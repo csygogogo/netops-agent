@@ -27,26 +27,31 @@ python chat_client.py "查询 leaf-01 的 Ethernet1/1 接口状态" --session-id
 python chat_client.py "继续检查相关日志" --session-id "dcn-001"
 ```
 
-HTTP 输入：
+HTTP 输入（会话 ID 在 URL 路径中，请求体只含 message）：
 
 ```http
-POST /v1/chat/stream
+POST /session/dcn-001/prompt_async
 Content-Type: application/json
 X-User-ID: local
 
-{"message":"查询 leaf-01 的 Ethernet1/1 接口状态","session_id":"dcn-001"}
+{"message":"查询 leaf-01 的 Ethernet1/1 接口状态"}
 ```
 
-`session_id` 必传。推荐先调用创建接口获取随机 UUID，再带入流式接口：
+`session_id` 必传。推荐先调用创建接口获取随机 UUID，再代入流式接口路径：
 
 ```http
-POST /v1/session
+POST /session
 X-User-ID: local
 
 → {"session_id":"0b5f2c1e-8a4d-4f6b-9c3e-7d2a1f5b8e90"}
+
+POST /session/0b5f2c1e-8a4d-4f6b-9c3e-7d2a1f5b8e90/prompt_async
+{"message":"..."}
 ```
 
 也可以由调用方自行生成并保持稳定（UUID 或 1..128 位字母、数字及 `- _ .`）。首次收到某个 ID 时自动建立会话；以后相同 ID 延续历史，不同 ID 分开存储。响应头 `X-Session-ID` 和 `X-Run-ID` 返回会话与本轮执行 ID。
+
+过渡期兼容：旧路径 `POST /v1/session` 与 `POST /v1/chat/stream`（session_id 在请求体 `{"message":..., "session_id":...}` 中）仍然可用，内部转发到同一实现；待调用方全部迁移后可移除。
 后续请求带同一个 session_id 和 X-User-ID 即可延续历史。
 session_id 支持 1..128 个字母、数字及 `- _ .`，建议使用调用方生成的 UUID；不能以点开头或结尾，不能包含冒号、空白或路径分隔符，不能使用 CON、NUL、COM1 等 Windows 保留名称。不同会话不能只靠大小写区分，后续请求应使用同一个完整 ID。
 浏览器调用时用 `fetch` 读取 POST 响应流；原生 `EventSource` 只支持 GET。
@@ -344,8 +349,9 @@ MCP SDK 在接收时仍会将单次结果缓存在内存；该机制限制的是
 
 | 方法与路径 | 用途 |
 | --- | --- |
-| POST /v1/session | 生成随机 UUID 会话 ID 并预创建会话，供 /v1/chat/stream 使用 |
-| POST /v1/chat/stream | 输入 message 和必填 session_id，返回 SSE |
+| POST /session | 生成随机 UUID 会话 ID 并预创建会话，供 prompt_async 使用 |
+| POST /session/{session_id}/prompt_async | 路径携带 session_id，输入 message，返回 SSE |
+| POST /v1/session、POST /v1/chat/stream | 旧路径兼容（后者 session_id 在请求体中），过渡期后移除 |
 | GET /v1/sessions/{id} | 查看会话摘要、提示词和激活技能 |
 | GET /v1/sessions/{id}/messages | 完整用户/助手消息，after/limit 分页 |
 | PUT /v1/prompts/user | 设置用户提示词 |
@@ -400,7 +406,7 @@ python chat_client.py "查询模拟设备 leaf-01 的 Ethernet1/1 状态，若 d
 
 ## 前端故障诊断对接
 
-启动 `python frontend/app.py` 后访问 http://127.0.0.1:8090；需同时运行后端及配置的 MCP 服务。前端代理原样转发 `/v1/chat/stream` SSE。详细启动、拓扑字段、会话与卡片交互说明见 [frontend/README.md](frontend/README.md)。
+启动 `python frontend/app.py` 后访问 http://127.0.0.1:8090；需同时运行后端及配置的 MCP 服务。前端代理原样转发 `/session/{id}/prompt_async` SSE 及全部 `/v1/*` 接口。详细启动、拓扑字段、会话与卡片交互说明见 [frontend/README.md](frontend/README.md)。
 
 根目录 `[frontend]` 配置前端监听端口和 backend_url；`[topology]` 配置用于背景拓扑查询的 MCP 服务名及三个工具名。默认接入 `[mcp.servers.demo]`，替换真实服务时更新地址、工具名和 allowed_tools。已有显式 MCP 配置时，原有 MCP_SERVER_URL 自动回退不会覆盖这些服务。
 

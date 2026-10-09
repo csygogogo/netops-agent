@@ -409,8 +409,8 @@ async function sendBackendDiagnosis(question) {
     if (follow) $("#chatScroll").scrollTop = $("#chatScroll").scrollHeight;
   }
   try {
-    const response = await fetch("/v1/chat/stream", { method: "POST", signal: diagnosisAbort.signal,
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: question.trim(), session_id: state.currentConversationId }) });
+    const response = await fetch(`/session/${encodeURIComponent(state.currentConversationId)}/prompt_async`, { method: "POST", signal: diagnosisAbort.signal,
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: question.trim() }) });
     if (!response.ok || !response.body) {
       const error = await response.json(); throw new Error(typeof error.detail === "string" ? error.detail : JSON.stringify(error.detail || error));
     }

@@ -22,9 +22,13 @@ from .topology import snapshot
 
 
 class ChatInput(BaseModel):
-    """聊天输入；session_id 由调用方提供，禁止额外字段。"""
+    """聊天输入；会话 ID 在 URL 路径中，请求体禁止额外字段。"""
     model_config = ConfigDict(extra="forbid")
     message: str = Field(min_length=1, max_length=100000)
+
+
+class LegacyChatInput(ChatInput):
+    """旧版 /v1/chat/stream 的输入；session_id 在请求体中。"""
     session_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-][A-Za-z0-9_.-]*$")
 
 
@@ -156,9 +160,10 @@ def create_app(settings=None, model=None) -> FastAPI:
         return {"status": "ok", "model": settings.model.model, "mcp_servers": list(settings.mcp.servers),
                 "skills": len(agent.skills.catalog), "skill_errors": agent.skills.errors}
 
-    @app.post("/v1/session")
+    @app.post("/session")
+    @app.post("/v1/session", deprecated=True)  # 旧路径兼容，过渡期后可移除
     async def create_session(user_id: str = Depends(user)):
-        """生成 UUID 会话 ID 并预创建会话；调用方再把它作为 /v1/chat/stream 的 session_id。"""
+        """生成 UUID 会话 ID 并预创建会话；调用方再把它代入 /session/{id}/prompt_async。"""
         session_id = str(uuid4())
         session = agent.store.ensure_session(session_id, user_id)
         return {"session_id": session["id"]}
@@ -220,11 +225,20 @@ def create_app(settings=None, model=None) -> FastAPI:
         agent.store.session(session_id, user_id)
         return await asyncio.to_thread(agent.artifacts.search, session_id, artifact_id, **body.model_dump())
 
-    @app.post("/v1/chat/stream")
-    async def chat(body: ChatInput, user_id: str = Depends(user)):
-        """根据调用方会话 ID 启动本轮流式处理。"""
-        state = agent.reserve(user_id, body.message, body.session_id)
+    def start_chat(user_id: str, message: str, session_id: str):
+        """校验并占用会话，生成本轮 SSE 响应；新旧路径共用。"""
+        state = agent.reserve(user_id, message, session_id)
         return chat_response(agent, state, running)
+
+    @app.post("/session/{session_id}/prompt_async")
+    async def chat(session_id: str, body: ChatInput, user_id: str = Depends(user)):
+        """会话 ID 由路径提供，请求体只含 message；启动本轮流式处理。"""
+        return start_chat(user_id, body.message, session_id)
+
+    @app.post("/v1/chat/stream", deprecated=True)  # 旧路径兼容，过渡期后可移除
+    async def legacy_chat(body: LegacyChatInput, user_id: str = Depends(user)):
+        """旧版入口：session_id 在请求体中，内部转发到同一实现。"""
+        return start_chat(user_id, body.message, body.session_id)
 
     @app.get("/v1/topology")
     async def topology(fabric_id: str = "", user_id: str = Depends(user)):

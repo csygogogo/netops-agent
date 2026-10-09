@@ -21,7 +21,7 @@ python frontend/app.py
 
 ## 诊断与流式事件
 
-- 输入 POST `/v1/chat/stream`：`{"session_id":"dcn-...","message":"用户问题"}`。
+- 输入 POST `/session/{session_id}/prompt_async`：会话 ID 在路径中，请求体 `{"message":"用户问题"}`。
 - 前端生成唯一 session_id。同一会话追问继续用该 ID，新建对话生成新 ID。
 - 展示 reasoning 分段（计划、当前步骤说明、证据评估）、tool 分段（pending/running/completed）、message.part.delta 回答增量、context.compressed、clarification、error 等事件。
 - 工具卡片按 callID 配对，可独立展开/收缩入参和返回结果。长结果只展示后端片段，支持按 2000 字符翻页或打开完整 JSON。

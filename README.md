@@ -78,16 +78,17 @@ DCN_Agent/
 
    ```bash
    curl http://127.0.0.1:8080/health                                   # 进程与配置检查
-   python print_stream_events.py "解释一下 EVPN"   # 不传 --session-id 时自动经 /v1/session 生成
+   python print_stream_events.py "解释一下 EVPN"   # 不传 --session-id 时自动经 /session 生成
    python chat_client.py "解释一下 EVPN" --session-id dcn-001          # 命令行对话
    ```
 
    `print_stream_events.py` 会按 `opencode_output_template.log` 同款格式逐条打印事件
    （默认折叠回答增量，加 `--full` 全量打印），可直接用于迁移后的字段核对。
 
-命令行请求也支持多轮：相同 `--session-id` 延续历史。调用方可先 `POST /v1/session` 获取随机
-UUID 会话 ID，再作为 `POST /v1/chat/stream` 的输入（请求体包含 `session_id` 和 `message`，
-响应为 SSE）；事件协议与字段表见 [后端手册](BACKEND.md)。
+命令行请求也支持多轮：相同 `--session-id` 延续历史。调用方可先 `POST /session` 获取随机
+UUID 会话 ID，再调用 `POST /session/{session_id}/prompt_async`（会话 ID 在路径中，请求体只含
+`message`，响应为 SSE）。旧路径 `POST /v1/session` 与 `POST /v1/chat/stream`（session_id 在
+请求体中）过渡期仍可用，内部转发到同一实现；事件协议与字段表见 [后端手册](BACKEND.md)。
 
 ## 演示模式（Mock，与正式功能隔离）
 
