@@ -1,6 +1,7 @@
 """配置默认值只保留在 config.toml；这里负责读取和基本检查。"""
 import math
 import os
+import sys
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -23,7 +24,10 @@ def load_settings(path=None):
     path = Path(path or os.getenv("DCN_CONFIG", default_path)).resolve()
     with default_path.open("rb") as stream:
         data = tomllib.load(stream)
-    data.setdefault("mcp", {"servers": {}})
+    # [mcp] 除显式 servers 外，还支持 directory 指向的 stdio 脚本目录。
+    data.setdefault("mcp", {})
+    for key, default in (("directory", "mcp"), ("python_path", ""), ("servers", {})):
+        data["mcp"].setdefault(key, default)
 
     # 自定义文件只需填写要覆盖的字段。
     if path != default_path:
@@ -66,7 +70,7 @@ def load_settings(path=None):
     if settings.agent.tool_result_tokens < 256:
         raise ValueError("tool_result_tokens 至少为 256")
 
-    for section in (settings.storage, settings.skills, settings.prompts):
+    for section in (settings.storage, settings.skills, settings.prompts, settings.mcp):
         section.directory = (path.parent / section.directory).resolve()
     if not isinstance(settings.skills.allow_scripts, bool):
         raise ValueError("skills.allow_scripts 必须为 true 或 false")
@@ -81,13 +85,28 @@ def load_settings(path=None):
     model.base_url = os.getenv("OLLAMA_BASE_URL", model.base_url)
     model.model = os.getenv("OLLAMA_MODEL", model.model)
 
-    servers = settings.mcp.servers
+    servers = dict(settings.mcp.servers)
+    # mcp/ 目录下的 *.py 按文件名注册为 stdio 子进程服务；同名显式配置优先。
+    if not isinstance(settings.mcp.python_path, str):
+        raise ValueError("mcp.python_path 必须为 Python 文件路径或空字符串")
+    stdio_python = settings.mcp.python_path or sys.executable
+    if settings.mcp.python_path:
+        candidate = (path.parent / Path(settings.mcp.python_path).expanduser()).resolve()
+        if not candidate.is_file():
+            raise ValueError(f"Python 文件不存在: {candidate}")
+        stdio_python = str(candidate)
+    if settings.mcp.directory.is_dir():
+        for script in sorted(settings.mcp.directory.glob("*.py")):
+            servers.setdefault(script.stem, {"command": [stdio_python, str(script.resolve())]})
     if not servers and os.getenv("MCP_SERVER_URL"):
         servers["default"] = {"url": os.environ["MCP_SERVER_URL"], "token_env": "MCP_API_TOKEN"}
     settings.mcp.servers = {}
     for name, server in servers.items():
-        if not server.get("url") or set(server) - {"url", "token_env", "allowed_tools"}:
-            raise ValueError(f"MCP 服务 {name} 的配置无效")
+        # 每个服务二选一：url 为 Streamable HTTP，command 为本地 stdio 子进程。
+        has_url, has_command = bool(server.get("url")), bool(server.get("command"))
+        if set(server) - {"url", "command", "token_env", "allowed_tools"} or has_url == has_command:
+            raise ValueError(f"MCP 服务 {name} 的配置无效：需提供 url（HTTP）或 command（stdio）之一")
         settings.mcp.servers[name] = SimpleNamespace(
-            url=server["url"], token_env=server.get("token_env"), allowed_tools=server.get("allowed_tools", []))
+            url=server.get("url"), command=server.get("command"),
+            token_env=server.get("token_env"), allowed_tools=server.get("allowed_tools", []))
     return settings

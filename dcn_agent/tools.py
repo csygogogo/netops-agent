@@ -6,7 +6,7 @@ import os
 from jsonschema import Draft202012Validator
 from referencing import Registry
 
-from .mcp_calling import list_mcp_tools, multi_mcp_calling
+from .mcp_calling import list_mcp_tools, list_stdio_tools, multi_mcp_calling, multi_stdio_calling
 from .storage import encode
 
 
@@ -69,9 +69,14 @@ class Tools:
         return config, {"Authorization": f"Bearer {token}" if token else ""}
 
     async def _discover(self, server):
-        """获取真实工具定义，应用允许名单并缓存。"""
+        """获取真实工具定义，应用允许名单并缓存；HTTP 与 stdio 二选一。"""
         config, headers = self._server(server)
-        tools = await list_mcp_tools(server_url=config.url, headers=headers, timeout=self.settings.agent.tool_timeout_seconds)
+        if config.command:
+            tools = await list_stdio_tools(script=config.command[1], python=config.command[0],
+                                           timeout=self.settings.agent.tool_timeout_seconds)
+        else:
+            tools = await list_mcp_tools(server_url=config.url, headers=headers,
+                                         timeout=self.settings.agent.tool_timeout_seconds)
         if config.allowed_tools:
             tools = [t for t in tools if t["name"] in config.allowed_tools]
         self.cache[server] = tools
@@ -130,8 +135,13 @@ class Tools:
                         "hint": "调用 mcp.list_tools 可按 query 筛选或 offset 翻页"}
             # 禁止 schema 自动读取外部引用 URL。
             Draft202012Validator(definition["inputSchema"], registry=Registry()).validate(arguments["arguments"])
-            result = await multi_mcp_calling([{"name": tool, "param": arguments["arguments"]}],
-                server_url=config.url, headers=headers, timeout=self.settings.agent.tool_timeout_seconds)
+            if config.command:
+                result = await multi_stdio_calling([{"name": tool, "param": arguments["arguments"]}],
+                    script=config.command[1], python=config.command[0],
+                    timeout=self.settings.agent.tool_timeout_seconds)
+            else:
+                result = await multi_mcp_calling([{"name": tool, "param": arguments["arguments"]}],
+                    server_url=config.url, headers=headers, timeout=self.settings.agent.tool_timeout_seconds)
             return result[0]
         if name == "artifact.search":
             return await asyncio.to_thread(self.artifacts.search, session_id=session_id, **arguments)

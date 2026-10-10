@@ -208,7 +208,21 @@ script_timeout_seconds = 300 # 脚本启动后最多等待 300 秒
 
 ## 2. MCP
 
-支持 Streamable HTTP，复用 `dcn_agent/mcp_calling.py`。可以通过环境变量配置单个服务，或配置多个服务：
+支持两种接入方式，复用 `dcn_agent/mcp_calling.py`，对模型的使用方式完全一致。
+
+**本地 stdio 脚本（推荐，零配置）**：把 FastMCP 编写的服务脚本放进 `mcp/` 目录，
+文件名即服务名（`mcp/nce_api.py` → `server: "nce_api"`），后端启动时扫描注册，
+以子进程 + stdio 传输按需拉起。要求与示例见 [mcp/README.md](mcp/README.md)：
+
+```bash
+python -B -m dcn_agent.mcp_calling --script mcp/nce_api.py   # 单独列出工具验证
+```
+
+- 脚本依赖（fastmcp、paramiko 等）需装在后端同一 Python 环境；解释器可用 `[mcp].python_path` 指定。
+- 客户端容忍脚本 stdout 的杂散 `print`，但应避免高频打印。
+- 每次工具调用启动一个子进程并在结束后回收；脚本导入较重时首次调用有秒级启动开销。
+
+**Streamable HTTP 服务**：通过配置接入，或用环境变量配置单个服务：
 
 ```toml
 [mcp.servers.dcn]
@@ -218,12 +232,12 @@ allowed_tools = ["get_interface_status", "get_device_logs"]
 ```
 
 服务名 `dcn` 对应 `mcp.call.arguments.server`。`allowed_tools=[]` 表示允许该服务所有已发现工具。
-服务令牌只从指定环境变量读取。工具不会自动重试。
+服务令牌只从指定环境变量读取。工具不会自动重试。同名时显式配置优先于 `mcp/` 目录中的同名脚本。
 
 - `mcp.list_tools`：按 query 筛选、offset/limit 分页返回真实工具定义和参数 schema。
 - `mcp.call`：校验真实工具与参数后执行；不存在的名称返回错误和可用工具提示。
 
-当前每次查询/调用建立并关闭一个 MCP 会话，不实现跨调用长连接池或 OAuth 登录流程。
+当前每次查询/调用建立并关闭一个 MCP 会话（HTTP 连接或 stdio 子进程），不实现跨调用长连接池或 OAuth 登录流程。
 用于修改设备的权限由实际 MCP 服务及其认证控制；本后端的模型提示词不能代替服务端权限校验。
 
 ## 3. 上下文与压缩
@@ -449,7 +463,10 @@ GET `/v1/topology?fabric_id=...`：经相同用户/令牌检查后调用三个�
 
 ## 独立调用模块
 
-## MCP：Streamable HTTP
+## MCP：Streamable HTTP 与 stdio 子进程
+
+`multi_stdio_calling` / `list_stdio_tools` 与下面的 HTTP 版函数参数结构一致，
+改传 `script=`（本地脚本路径）和可选 `python=`，返回结构相同：
 
 使用完整的 MCP 服务地址（路径由服务端决定）：
 

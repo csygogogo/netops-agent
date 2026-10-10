@@ -5,6 +5,8 @@ directory = "../data/demo"
 directory = "../skills"
 [prompts]
 directory = "../prompts"
+[mcp]
+directory = "../mcp"
 [agent]
 max_steps = 24
 [server]

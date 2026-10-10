@@ -1,4 +1,4 @@
-"""通过 Streamable HTTP 调用 MCP 工具，供其他脚本直接 import。"""
+"""调用 MCP 工具：Streamable HTTP 服务与本地子进程 stdio 脚本，供其他脚本直接 import。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from async_timeout import timeout as async_timeout
 import json
 import math
 import os
+import sys
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -20,8 +21,9 @@ try:
     from builtins import ExceptionGroup
 except ImportError:
     from exceptiongroup import ExceptionGroup
-from mcp import ClientSession
+from mcp import ClientSession, StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
+from mcp.client.stdio import stdio_client
 
 
 def _settings(url: str | None, headers: Mapping[str, str] | None, timeout: float):
@@ -53,6 +55,20 @@ async def _session(url: str, headers: httpx.Headers, timeout: float) -> AsyncIte
                 yield session
 
 
+@asynccontextmanager
+async def _stdio_session(script: str, python: str | None, timeout: float) -> AsyncIterator[ClientSession]:
+    """以子进程 stdio 方式启动本地 MCP 脚本并初始化会话，退出时结束子进程。
+
+    客户端容忍脚本在 stdout 的杂散输出（如调试 print），只解析 JSON-RPC 行。
+    """
+    params = StdioServerParameters(command=python or sys.executable, args=[script])
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write, read_timeout_seconds=timedelta(seconds=timeout)) as session:
+            async with async_timeout(timeout):
+                await session.initialize()
+            yield session
+
+
 def _error_text(error: Exception) -> str:
     """展开嵌套异常，生成便于排查的错误说明。"""
     if isinstance(error, ExceptionGroup):
@@ -76,8 +92,38 @@ async def multi_mcp_calling(
     """
     if isinstance(calls, (str, bytes, Mapping)) or not isinstance(calls, Sequence):
         raise ValueError("calls 必须是工具调用列表")
+    normalized = _normalize_calls(calls)
+    _check_concurrency(max_concurrency)
+    if not normalized:
+        return []
+    url, auth_headers = _settings(server_url, headers, timeout)
+    async with _session(url, auth_headers, timeout) as session:
+        return await _dispatch(session, normalized, timeout, max_concurrency)
+
+
+async def multi_stdio_calling(
+    calls: Sequence[Mapping[str, Any]], *, script: str,
+    python: str | None = None, timeout: float = 60.0,
+    max_concurrency: int = 1,
+) -> list[dict[str, Any]]:
+    """stdio 版批量调用：每次调用启动一个脚本子进程会话。
+
+    输入、返回结构、错误语义与 multi_mcp_calling 完全一致；script 是本地
+    MCP 脚本路径（FastMCP 编写、mcp.run() 启动），python 留空使用当前解释器。
+    """
+    if isinstance(calls, (str, bytes, Mapping)) or not isinstance(calls, Sequence):
+        raise ValueError("calls 必须是工具调用列表")
+    normalized = _normalize_calls(calls)
+    _check_concurrency(max_concurrency)
+    if not normalized:
+        return []
+    async with _stdio_session(script, python, timeout) as session:
+        return await _dispatch(session, normalized, timeout, max_concurrency)
+
+
+def _normalize_calls(calls: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """先校验整批输入，避免执行到一半才发现后续调用格式有误。"""
     normalized = []
-    # 先校验整批输入，避免执行到一半才发现后续调用格式有误。
     for index, call in enumerate(calls):
         if not isinstance(call, Mapping) or not isinstance(call.get("name"), str) or not call["name"].strip():
             raise ValueError(f"calls[{index}].name 必须为非空字符串")
@@ -89,11 +135,18 @@ async def multi_mcp_calling(
         except (TypeError, ValueError) as exc:
             raise ValueError(f"calls[{index}].param 必须可序列化为 JSON") from exc
         normalized.append({"name": call["name"], "param": param})
+    return normalized
+
+
+def _check_concurrency(max_concurrency: int):
+    """并发参数只接受正整数。"""
     if isinstance(max_concurrency, bool) or not isinstance(max_concurrency, int) or max_concurrency < 1:
         raise ValueError("max_concurrency 必须为正整数")
-    if not normalized:
-        return []
-    url, auth_headers = _settings(server_url, headers, timeout)
+
+
+async def _dispatch(session: ClientSession, normalized: list[dict], timeout: float,
+                    max_concurrency: int) -> list[dict[str, Any]]:
+    """在已建立的会话上并发执行整批调用；单项失败继续其他项。"""
     results: list[dict[str, Any] | None] = [None] * len(normalized)
 
     def failure(index: int, message: str) -> dict[str, Any]:
@@ -101,30 +154,29 @@ async def multi_mcp_calling(
                 "data": None, "content": [], "error": message}
 
     try:
-        async with _session(url, auth_headers, timeout) as session:
-            semaphore = asyncio.Semaphore(max_concurrency)
+        semaphore = asyncio.Semaphore(max_concurrency)
 
-            async def invoke(index: int) -> None:
-                async with semaphore:
-                    call = normalized[index]
-                    try:
-                        async with async_timeout(timeout):
-                            result = await session.call_tool(call["name"], arguments=call["param"])
-                        content = [block.model_dump(mode="json", by_alias=True, exclude_none=True)
-                                   for block in result.content]
-                        text = "\n".join(block["text"] for block in content if block.get("type") == "text")
-                        results[index] = {
-                            "name": call["name"], "ok": not result.isError,
-                            "text": text, "data": result.structuredContent, "content": content,
-                            "error": (text or "MCP 工具返回 isError=True") if result.isError else None,
-                        }
-                    except Exception as exc:
-                        results[index] = failure(index, _error_text(exc))
+        async def invoke(index: int) -> None:
+            async with semaphore:
+                call = normalized[index]
+                try:
+                    async with async_timeout(timeout):
+                        result = await session.call_tool(call["name"], arguments=call["param"])
+                    content = [block.model_dump(mode="json", by_alias=True, exclude_none=True)
+                               for block in result.content]
+                    text = "\n".join(block["text"] for block in content if block.get("type") == "text")
+                    results[index] = {
+                        "name": call["name"], "ok": not result.isError,
+                        "text": text, "data": result.structuredContent, "content": content,
+                        "error": (text or "MCP 工具返回 isError=True") if result.isError else None,
+                    }
+                except Exception as exc:
+                    results[index] = failure(index, _error_text(exc))
 
-            # TaskGroup 在退出 session 前回收所有调用，外部取消时不会遗留任务。
-            async with create_task_group() as group:
-                for index in range(len(normalized)):
-                    group.start_soon(invoke, index)
+        # TaskGroup 在退出 session 前回收所有调用，外部取消时不会遗留任务。
+        async with create_task_group() as group:
+            for index in range(len(normalized)):
+                group.start_soon(invoke, index)
     except Exception as exc:
         # 保留已收到的结果；仅为没有完成的调用补充连接错误。
         for index, result in enumerate(results):
@@ -152,9 +204,29 @@ async def list_mcp_tools(
     return tools
 
 
+async def list_stdio_tools(
+    *, script: str, python: str | None = None, timeout: float = 60.0,
+) -> list[dict[str, Any]]:
+    """列出 stdio 脚本的名称、描述和 inputSchema；连接错误直接抛出。"""
+    tools = []
+    async with _stdio_session(script, python, timeout) as session:
+        cursor = None
+        while True:
+            async with async_timeout(timeout):
+                page = await session.list_tools(cursor=cursor)
+            tools.extend(tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in page.tools)
+            cursor = page.nextCursor
+            if not cursor:
+                break
+    return tools
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server-url", default=None)
+    parser.add_argument("--script", default=None, help="本地 stdio MCP 脚本路径")
     args = parser.parse_args()
     # 直接运行仅列出工具，不猜测或执行业务工具。
-    print(json.dumps(asyncio.run(list_mcp_tools(server_url=args.server_url)), ensure_ascii=False, indent=2))
+    tools = asyncio.run(list_stdio_tools(script=args.script) if args.script
+                        else list_mcp_tools(server_url=args.server_url))
+    print(json.dumps(tools, ensure_ascii=False, indent=2))

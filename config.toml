@@ -54,6 +54,14 @@ api_token_env = "DCN_API_TOKEN"
 # token_env = "MCP_API_TOKEN"
 # allowed_tools = []  # 空列表允许该服务的所有工具
 
+[mcp]
+# stdio 子进程 MCP 目录：其中每个 *.py 按文件名注册为同名服务
+# （如 mcp/nce_api.py → mcp.call 的 server "nce_api"），无需再写配置。
+# 脚本需用 FastMCP 等编写、以 stdio 传输运行（mcp.run()），依赖装在后端环境。
+directory = "mcp"
+# 启动 stdio 脚本的解释器；留空使用后端当前 Python。
+python_path = ""
+
 [frontend]
 host = "0.0.0.0"
 port = 8631

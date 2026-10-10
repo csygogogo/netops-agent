@@ -31,6 +31,7 @@ DCN_Agent/
 │   └── topology.py          #   拓扑快照查询（前端背景图）
 ├── prompts/                 # 提示词正文：system / controller / final / compress（必需）
 ├── skills/                  # 技能正文、参考文件与脚本（排障功能必需）
+├── mcp/                     # stdio MCP 脚本目录：放入 *.py 即按文件名自动注册（如 nce_api.py → server "nce_api"）
 ├── frontend/                # 前端：静态页面 + Python 代理（必需）
 │   ├── config.json          #   功能开关：perception / deep_diagnosis（模拟页面）
 │   └── static/              #   页面与逻辑；diagnosis.js 消费 opencode 风格事件
@@ -61,7 +62,9 @@ DCN_Agent/
 
    - `[model]`：模型服务地址和名称。默认 Ollama（`transport = "ollama"`，`base_url` 填
      `http://<模型机>:11434/v1`）；模型服务提供 OpenAI 兼容接口时改 `transport = "openai"`。
-   - `[mcp.servers.*]`：真实 MCP 的地址和工具白名单；没有 MCP 也能用普通问答和技能，
+   - `[mcp.servers.*]`：真实 MCP（HTTP）的地址和工具白名单；**本地 stdio MCP 只需把脚本放进
+     `mcp/` 目录**（用 FastMCP 编写、`mcp.run()` 启动，文件名即服务名，依赖装在后端环境，
+     详见 [mcp/README.md](mcp/README.md)），重启后端即完成注册。没有 MCP 也能用普通问答和技能，
      只是排障工具不可用。前端拓扑图读取 `[topology]` 指定的三个查询工具。
 
 3. **分别启动两个服务**（接入真实 MCP 时无需启动任何 demo 组件）：
@@ -114,7 +117,7 @@ python demo/demo_mcp_server.py        # 单独启动模拟 MCP（配合 run_serv
 
 | 内容 | 是否提交 | 说明 |
 | --- | --- | --- |
-| `dcn_agent/`、`frontend/`、`prompts/`、`skills/`、根目录脚本、`config.toml`、`requirements.txt`、文档 | 提交 | 正式功能全部依赖这些 |
+| `dcn_agent/`、`frontend/`、`prompts/`、`skills/`、`mcp/`、根目录脚本、`config.toml`、`requirements.txt`、文档 | 提交 | 正式功能全部依赖这些；`mcp/` 放入真实脚本后随仓库分发即完成 MCP 配置 |
 | `data/` | 不提交 | 已被 `.gitignore` 忽略；含本地会话、测试产生的日志与 SQLite |
 | `demo/` | 可选 | 演示/Mock 专用；核心零依赖，不想带 mock 就按上面命令移除 |
 | 前端"隐患感知/深度诊断"页面 | 保留但可关闭 | 前端内置模拟界面，`frontend/config.json` 中 `features.perception=false`、`features.deep_diagnosis=false` 即隐藏，与后端无关 |
