@@ -125,9 +125,9 @@ data: {"id":"evt_18f3a2b4c5d6e7f80921a3b4","type":"message.part.updated","proper
 | `message.part.updated` | sessionID、part、time；分段见下表 |
 | `message.part.delta` | sessionID、messageID、partID、field=text、delta：最终回答增量文本 |
 | `context.compressed` | before/after_tokens_estimate、compressed_messages、fallback |
-| `model.retry` | 结构化输出修复；artifact_id 指向无效输出诊断记录 |
+| `model.retry` | 结构化输出修复；artifact_id 指向无效输出诊断记录。reason=invalid_decision_json/empty_reflection/reflection_defaulted |
 | `clarification` | question：需要用户补充的信息 |
-| `limit` | max_steps 或重复调用限制 |
+| `limit` | max_steps、重复调用或 invalid_decision（决策多次格式无效，转入最终回答） |
 | `skill.loaded` | name、active_skills |
 | `error` | code、message；流已开始后通过事件报告错误 |
 
@@ -138,7 +138,7 @@ data: {"id":"evt_18f3a2b4c5d6e7f80921a3b4","type":"message.part.updated","proper
 | `step-start` | 一次模型调用开始；metadata 带 phase=decision/answer、step、attempt |
 | `reasoning` | 决策文字；metadata.kind=plan/summary/reflection 区分计划、当前步骤说明与证据评估 |
 | `tool` | 工具调用；state.status=pending → running（input 为参数）→ completed/error（output 为完整结果 JSON 字符串，metadata 带 truncated、ok、artifact_id、chars） |
-| `step-finish` | 步骤结束；reason=tool-calls/stop，tokens 为 UTF-8 字节估算 |
+| `step-finish` | 步骤结束；reason=tool-calls/stop，tokens 为中文字符加权估算 |
 | `text` | 用户消息原文或最终回答全文；最终回答增量经 `message.part.delta` 传输 |
 
 每个决策步骤对应一条助手消息（`msg_<run_id>s<step>`），最终回答为独立消息（`msg_<run_id>f`）。
@@ -183,7 +183,7 @@ description: 描述技能用途和适用条件。
 加载分三层：
 
 1. 启动时只读取 frontmatter。初始模型上下文只有有限的名称/描述目录，更多技能可用 `skill.list` 筛选和分页。
-2. 模型选择 `skill.load` 后加载 SKILL.md 正文与文件名列表。当前激活技能的指令片段每轮注入，防止压缩后遗忘流程。
+2. 模型选择 `skill.load` 后按页加载 SKILL.md 正文与文件名列表（带 next_offset/eof）。当前激活技能的指令片段每轮注入，防止压缩后遗忘流程。
 3. 参考资料、模板或脚本用 `skill.read` 按需读取；路径限于该技能目录，支持字符分页。长正文同样保存为 artifact。
 
 `skills.max_active` 限制同时激活的技能数量，超过时移出最早激活的技能；可再次加载。
@@ -276,12 +276,17 @@ summary_tokens = 1000
              = 11059
 ```
 
-输入估算量超过 11059 时尝试压缩旧历史。当前目标和系统规则等固定内容不会因此被删除；如果没有历史可压缩，或固定内容本身过大，不能单靠调低触发比例解决。
+输入估算量超过 11059 时尝试压缩旧历史，压缩目标为阈值的 70%（兼顾固定内容下限），
+使每次压缩都腾出实际空间，避免一两个工具结果后又立刻再次触发。当前目标和系统规则等固定内容不会因此被删除；
+如果没有历史可压缩，或固定内容本身过大，不能单靠调低触发比例解决。
 
-每次推理前计算输入预算：窗口减去预留输出与安全余量。使用 UTF-8 字节数加消息开销进行保守估算，
-不是精确 tokenizer 计数，因此通常会提前压缩。`context.compressed` 中明确标记估算方法。
+每次推理前计算输入预算：窗口减去预留输出与安全余量。使用字符加权方式保守估算
+（中文约 1 token/字、其他字符约 0.4 token/字符），不是精确 tokenizer 计数，因此仍会略提前压缩。
+`context.compressed` 中明确标记估算方法。
 
-注意：传给模型服务的生成上限是真正的 token 数，但本地预算与文本裁剪使用 UTF-8 字节数。因此 `summary_tokens=1000` 保存摘要时最多保留约 1000 字节，不是 1000 个汉字；以常见中文汉字为主时约三百字，截取标记也占空间。不要把这些参数直接当作字数。
+注意：传给模型服务的生成上限是真正的 token 数；本地预算与文本裁剪使用同一套字符加权估算。
+`summary_tokens=1000` 大致对应一千个汉字或更多英文内容；不要把参数直接当作其他字数单位。
+单轮排障是否压缩取决于窗口与内容量：16K 窗口下一轮通常不会触发，多轮长会话或超长工具结果仍会按需压缩。
 
 调整时按现象选择参数，每次只改相关项，便于比较效果：
 
@@ -454,7 +459,7 @@ GET `/v1/topology?fabric_id=...`：经相同用户/令牌检查后调用三个�
 | 按故障技能排查 | 加载相关技能，按需读取参考文件和运行脚本，结合 MCP 证据继续决策 |
 | 修复后验证 | 需要真实修复工具和相应状态、业务验证工具；仅有查询工具时只能诊断并给出建议 |
 
-技能目录在服务启动时扫描，新增技能需重启。每个激活技能进入系统提示词的正文受 instruction_tokens 限制，摘录会明确提示；完整内容仍可通过 skill.load 的结果或 skill.read 获取。脚本使用 skills.python_path 指定的本机解释器，无需额外确认；script_timeout_seconds 独立控制脚本时间，不受 MCP 的 tool_timeout_seconds 提前截断，但仍受整轮 max_run_seconds 限制。脚本输出不设长度上限，统一保存和检索。
+技能目录在服务启动时扫描，新增技能需重启。每个激活技能进入系统提示词的正文最多 instruction_tokens 字符（中文恰好约等于同数 token）；未读完时提示精确续读 offset。skill.load 每页返回 load_result_chars 字符并带 offset/next_offset/eof，正文按页完整进入上下文，不再切成预览片段。脚本使用 skills.python_path 指定的本机解释器，无需额外确认；script_timeout_seconds 独立控制脚本时间，不受 MCP 的 tool_timeout_seconds 提前截断，但仍受整轮 max_run_seconds 限制。脚本输出不设长度上限，统一保存和检索。
 
 演示 MCP 支持多 Pod 双故障、独立 case_id、模拟修复和业务复查，完整操作见 [demo/README.md](demo/README.md)。演示工具只修改模拟状态，**尚不具备真实设备自动修复能力**。引擎可以调用接入的真实修复 MCP，再调用验证 MCP，但不会自动替服务定义业务恢复标准、补偿或回滚逻辑；这些需要在实际工具和故障技能中明确。session.idle 的 completed 仅表示本轮回答正常结束，不代表故障已消除。超时或取消也不代表已执行的设备变更被撤销，下一轮应重新查询确认。
 

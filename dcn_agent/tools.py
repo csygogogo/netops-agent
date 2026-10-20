@@ -21,7 +21,8 @@ PAGE = {"offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer"
 # 本地工具名称对应：用途说明、参数 schema。
 SPECS = {
     "skill.list": ("查找技能元数据", schema({"query": {"type": "string", "maxLength": 256}, **PAGE})),
-    "skill.load": ("按名称加载 SKILL.md", schema({"name": TEXT}, ["name"])),
+    "skill.load": ("按名称分页加载 SKILL.md；未到 eof 时用返回的 next_offset 继续", schema(
+        {"name": TEXT, "offset": {"type": "integer", "minimum": 0}}, ["name"])),
     "skill.read": ("按需读取 references/、scripts/ 等文件", schema({"name": TEXT, "path": TEXT,
         "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 4000}}, ["name", "path"])),
     "skill.run": ("运行已信任技能的 scripts/*.py", schema({"name": TEXT, "script": TEXT,

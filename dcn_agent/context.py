@@ -65,7 +65,8 @@ class Context:
         threshold = int(self.config.input_budget * self.config.compression_trigger_ratio)
         if before <= threshold or (not history and before <= self.config.input_budget):
             return messages, history, summary, None
-        target = max(threshold, fixed + self.config.summary_tokens + 128)
+        # 压缩目标低于触发阈值一档，腾出实际空间，避免每步都重复触发压缩。
+        target = max(int(threshold * 0.7), fixed + self.config.summary_tokens + 128)
         keep = min(4, len(history))
         # 至少压缩一条旧记录，在预算允许时保留最近的工具结果。
         keep = min(keep, max(0, len(history) - 1))
@@ -79,4 +80,4 @@ class Context:
         if after > self.config.input_budget:
             raise ContextOverflow("压缩后仍超过上下文预算")
         return messages, retained, summary, {"before_tokens_estimate": before, "after_tokens_estimate": after,
-            "compressed_messages": len(old), "fallback": fallback, "estimator": "utf8_bytes_upper_estimate"}
+            "compressed_messages": len(old), "fallback": fallback, "estimator": "charset_weighted_upper_estimate"}

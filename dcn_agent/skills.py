@@ -11,8 +11,6 @@ from pathlib import Path
 
 import yaml
 
-from .budget import clip
-
 
 class Skills:
     """按元数据、正文、资源三个层级加载技能。"""
@@ -74,14 +72,20 @@ class Skills:
             raise ValueError("文件不存在或超出 skill 目录")
         return path
 
-    def load(self, name: str) -> dict:
-        """读取 SKILL.md 和资源文件名，正文之外的内容仍按需加载。"""
-        path = self.path(name, "SKILL.md")
-        text = path.read_text(encoding="utf-8-sig")
-        root = path.parent
+    def load(self, name: str, offset: int = 0) -> dict:
+        """按页读取 SKILL.md 正文和资源文件名，正文之外的内容仍按需加载。
+
+        每页字符数由 load_result_chars 控制，返回 next_offset/eof 供模型精确续读，
+        避免整篇塞进上下文或截断后不知道从哪里继续。
+        """
+        if offset < 0:
+            raise ValueError("offset >= 0")
+        page = self.read(name, "SKILL.md", offset=offset, limit=self.config.load_result_chars)
+        root = self.catalog[name]["directory"]
         files = [p.relative_to(root).as_posix() for p in sorted(root.rglob("*"))
                  if p.is_file() and p.resolve().is_relative_to(root) and "__pycache__" not in p.parts][:100]
-        return {"name": name, "text": text, "files": files}
+        return {"name": name, "text": page["text"], "offset": offset,
+                "next_offset": page["next_offset"], "eof": page["eof"], "files": files}
 
     def read(self, name: str, path: str, offset: int = 0, limit: int = 3000) -> dict:
         """按字符分页读取技能资源。"""
@@ -101,16 +105,20 @@ class Skills:
                 "next_offset": offset + len(content), "eof": eof}
 
     def instructions(self, loaded: list[str]) -> str:
-        """将当前激活技能的有限指令片段注入上下文。"""
+        """将当前激活技能的指令片段注入上下文。
+
+        读取 instruction_tokens 个字符：中文按 1 token/字估算时恰好用满预算，
+        纯 ASCII 只会更低，因此不再二次裁剪；未读完时给出精确续读位置。
+        """
         parts = []
         for name in loaded[-self.config.max_active:]:
             if name in self.catalog:
-                page = self.read(name, "SKILL.md", limit=self.config.instruction_tokens)
-                text = clip(page["text"], self.config.instruction_tokens)
+                page = self.read(name, "SKILL.md", limit=min(self.config.instruction_tokens, 16000))
                 note = ""
-                if not page["eof"] or text != page["text"]:
-                    note = "\n[这里只是指令摘录；完整正文见 skill.load 结果，必要时使用 skill.read 读取 SKILL.md。]"
-                parts.append(f"[active skill: {name}]\n" + text + note)
+                if not page["eof"]:
+                    note = (f"\n[以上为指令摘录，未完；续读调用 skill.read："
+                            f'name={name} path=SKILL.md offset={page["next_offset"]}]')
+                parts.append(f"[active skill: {name}]\n" + page["text"] + note)
         return "\n\n".join(parts)
 
     async def run(self, name: str, script: str, args: list[str], output_path: Path) -> dict:

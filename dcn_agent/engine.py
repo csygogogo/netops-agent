@@ -4,6 +4,7 @@ import asyncio
 from asyncio import TimeoutError
 from async_timeout import timeout as async_timeout
 import json
+import re
 from collections import Counter
 from contextlib import aclosing
 from dataclasses import dataclass, field
@@ -27,6 +28,7 @@ from .tools import SPECS
 def decision_schema(allow_clarification: bool, allow_scripts: bool = True):
     # 生成约束保持简短，避免本地模型运行时构造过大的语法。
     # 工具执行前使用同一份 schema 校验，不再维护一套重复的类型声明。
+    # reflection 不用 minLength 强制：小模型常给空串，重试后降级继续比按格式错误终止更合适。
     """定义模型下一步决策格式：工具调用、最终回答或补充问题。"""
     action_schemas = [
         {"type": "object", "properties": {"type": {"const": "tool"},
@@ -44,9 +46,21 @@ def decision_schema(allow_clarification: bool, allow_scripts: bool = True):
         "required": ["plan", "summary", "reflection", "action"], "additionalProperties": False}
 
 
+def extract_json(raw: str) -> str:
+    """提取模型输出中的 JSON 对象，容忍思考段、代码围栏和前后说明文字。"""
+    text = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[\w-]*\s*", "", text)
+        text = re.sub(r"\s*```\s*$", "", text).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if 0 <= start < end:
+        text = text[start:end + 1]
+    return text
+
+
 def parse_decision(raw, schema):
     """解析完整 JSON，检查字段和长度后才允许执行。"""
-    decision = json.loads(raw)
+    decision = json.loads(extract_json(raw))
     try:
         Draft202012Validator(schema).validate(decision)
     except ValidationError as exc:
@@ -186,22 +200,45 @@ class Agent:
                                                                   "attempt": attempt + 1,
                                                                   "input_tokens": message_tokens(messages)}):
                     yield payload
-                output_schema = decision_schema(self.settings.agent.allow_clarification, self.settings.skills.allow_scripts)
+                output_schema = decision_schema(self.settings.agent.allow_clarification,
+                                                self.settings.skills.allow_scripts)
                 raw = await self.model.complete(messages, json_mode=output_schema)
+                last = attempt >= self.settings.agent.decision_retries
                 try:
                     # 校验完整对象，残缺 JSON 或夹杂说明文字时不执行。
                     decision = parse_decision(raw, output_schema)
-                    if state.had_tool and not decision["reflection"].strip():
-                        raise ValueError("必须在 reflection 中评估最近的工具结果")
-                    break
                 except ValueError as exc:
+                    decision = None
                     diagnostic = self.artifacts.save(state.session_id, state.run_id, "model.invalid_decision",
                         {"text": raw, "error": clip(str(exc), 2000)})
-                    if attempt >= self.settings.agent.decision_retries:
-                        raise ValueError("模型控制输出不符合结构化协议，已停止本轮") from exc
+                    if last:
+                        # 多次格式无效不再终止整轮：保留已有证据，转入最终回答阶段。
+                        for payload in self.event(state, "limit", {"reason": "invalid_decision", "step": step, **diagnostic}):
+                            yield payload
+                        final_status = "incomplete"
+                        final_reason = "模型控制输出多次不符合结构化协议，工具决策已停止；请基于已有证据直接给出结论、已查到的事实和未完成部分。"
+                        break
                     for payload in self.event(state, "model.retry", {"step": step, "reason": "invalid_decision_json", **diagnostic}):
                         yield payload
-                    repair = "上次控制输出格式无效。重新输出完整 JSON；严格使用约定字段与 action.type。最近有工具结果时 reflection 不能为空。"
+                    repair = "上次控制输出格式无效。重新输出完整 JSON；严格使用约定字段与 action.type。"
+                    continue
+                if state.had_tool and not decision["reflection"].strip():
+                    diagnostic = self.artifacts.save(state.session_id, state.run_id, "model.invalid_decision",
+                        {"text": raw, "error": "reflection 为空；需简短评估最近一次工具结果"})
+                    if last:
+                        # JSON 本身有效、仅缺少证据评估时降级继续，不为此丢弃整轮。
+                        decision["reflection"] = "（模型未填写对最近工具结果的评估）"
+                        for payload in self.event(state, "model.retry", {"step": step, "reason": "reflection_defaulted", **diagnostic}):
+                            yield payload
+                        break
+                    for payload in self.event(state, "model.retry", {"step": step, "reason": "empty_reflection", **diagnostic}):
+                        yield payload
+                    decision = None
+                    repair = "上次控制输出格式无效。重新输出完整 JSON；严格使用约定字段与 action.type。最近有工具结果时 reflection 必须简短评估该结果。"
+                    continue
+                break
+            if decision is None:
+                break
             if decision["plan"]:
                 for payload in self.event(state, "plan", {"steps": decision["plan"], "step": step}):
                     yield payload
@@ -254,8 +291,12 @@ class Agent:
                     result = await self.tools.call(action["name"], action["arguments"], state.session_id, state.loaded, state.run_id)
             except Exception as exc:
                 result = {"ok": False, "error": clip(f"{type(exc).__name__}: {exc}", 2000)}
+            # 技能正文按页返回且已限长，给足预算避免一页再被切成预览片段。
+            budget = self.settings.agent.tool_result_tokens
+            if action["name"] in {"skill.load", "skill.read"}:
+                budget = max(budget, self.settings.skills.load_result_chars + 512)
             packed = await asyncio.to_thread(self.artifacts.pack, state.session_id, state.run_id,
-                action["name"], result, state.goal, self.settings.agent.tool_result_tokens)
+                action["name"], result, state.goal, budget)
             ok = result.get("ok", True) if isinstance(result, dict) else True
             observation = {"call_id": call_id, "name": action["name"], "ok": ok, **packed}
             if action["name"] == "mcp.call":

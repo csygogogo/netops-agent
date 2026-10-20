@@ -5,6 +5,8 @@ base_url = "http://10.137.16.118:8012/v1"
 api_key_env = "OLLAMA_API_KEY"
 model = "qwen3.6-rl"
 timeout_seconds = 120
+# 按部署模型实际上下文窗口填写；本地估算已按中文字符加权（约 1 token/汉字），
+# 不再按 UTF-8 字节数高估，窗口够大时单轮排障不会中途触发压缩。
 context_window_tokens = 16384
 max_output_tokens = 1536
 safety_margin_tokens = 1024
@@ -17,7 +19,8 @@ temperature = 0
 allow_clarification = true
 max_steps = 24
 max_run_seconds = 600
-decision_retries = 1
+# 决策 JSON 校验失败时的重试次数；仍失败只终止工具决策，不丢弃整轮。
+decision_retries = 2
 max_identical_calls = 3
 tool_timeout_seconds = 60
 tool_result_tokens = 1800
@@ -30,7 +33,10 @@ directory = "data"
 [skills]
 directory = "skills"
 max_active = 3
-instruction_tokens = 1200
+# 进入系统提示词的技能指令预算（token）：读取同数量字符，中文恰好用满。
+instruction_tokens = 4000
+# skill.load 每页返回的 SKILL.md 字符数；未读完时模型按 next_offset 续读。
+load_result_chars = 4000
 # 直接在本机执行可信脚本，无需用户逐次确认；false 则禁止脚本执行。
 allow_scripts = true
 # 留空使用后端当前 Python；也可填写 Python 可执行文件路径，修改后重启。

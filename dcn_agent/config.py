@@ -74,6 +74,8 @@ def load_settings(path=None):
         section.directory = (path.parent / section.directory).resolve()
     if not isinstance(settings.skills.allow_scripts, bool):
         raise ValueError("skills.allow_scripts 必须为 true 或 false")
+    if not 1 <= settings.skills.load_result_chars <= 16000:
+        raise ValueError("skills.load_result_chars 应为 1..16000 的整数（字符数）")
     if not isinstance(settings.skills.python_path, str):
         raise ValueError("skills.python_path 必须为 Python 文件路径或空字符串")
     if settings.skills.python_path:

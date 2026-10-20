@@ -24,7 +24,7 @@ def unique_id(prefix: str) -> str:
 
 
 def token_usage(input_value: int = 0, output_value: int = 0) -> dict:
-    """模板 tokens 字段结构；本项目使用 UTF-8 字节保守估算。"""
+    """模板 tokens 字段结构；本项目使用中文字符加权的保守估算。"""
     return {"total": input_value + output_value, "input": input_value, "output": output_value,
             "reasoning": 0, "cache": {"write": 0, "read": 0}}
 
