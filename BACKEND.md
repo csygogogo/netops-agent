@@ -218,7 +218,7 @@ script_timeout_seconds = 300 # 脚本启动后最多等待 300 秒
 python -B -m dcn_agent.mcp_calling --script mcp/nce_api.py   # 单独列出工具验证
 ```
 
-- 脚本依赖（fastmcp、paramiko 等）需装在后端同一 Python 环境；解释器可用 `[mcp].python_path` 指定。
+- 脚本常见依赖（fastmcp、requests、paramiko、networkx、loguru）已含在 requirements.txt；解释器可用 `[mcp].python_path` 指定。每次调用启动并回收一个脚本子进程，属 stdio 正常行为。
 - 客户端容忍脚本 stdout 的杂散 `print`，但应避免高频打印。
 - 每次工具调用启动一个子进程并在结束后回收；脚本导入较重时首次调用有秒级启动开销。
 
@@ -231,7 +231,7 @@ token_env = "MCP_API_TOKEN"
 allowed_tools = ["get_interface_status", "get_device_logs"]
 ```
 
-服务名 `dcn` 对应 `mcp.call.arguments.server`。`allowed_tools=[]` 表示允许该服务所有已发现工具。
+服务名 `dcn` 对应 `mcp.call.arguments.server`。不配置 `allowed_tools`（或空列表）时放行该服务全部已发现工具。
 服务令牌只从指定环境变量读取。工具不会自动重试。同名时显式配置优先于 `mcp/` 目录中的同名脚本。
 
 - `mcp.list_tools`：按 query 筛选、offset/limit 分页返回真实工具定义和参数 schema。

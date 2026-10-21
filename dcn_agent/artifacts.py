@@ -130,8 +130,14 @@ class Artifacts:
                 carry = text[safe_end:]
                 start += safe_end
 
-    def pack(self, session_id: str, run_id: str, source: str, result, query: str, budget: int) -> dict:
-        """保存完整结果，超出预算时只返回命中片段和原文引用。"""
+    def pack(self, session_id: str, run_id: str, source: str, result, query: str, budget: int | None) -> dict:
+        """保存完整结果，超出预算时只返回命中片段和原文引用。
+
+        budget 为 None 表示结果已按页限长（分页读取类工具），整页返回不再截断。
+        """
+        if budget is None and source != "skill.run":
+            meta = self.save(session_id, run_id, source, result)
+            return {**meta, "truncated": False, "result": result}
         if source == "skill.run" and isinstance(result, dict) and result.get("artifact_id"):
             # 脚本已直接落盘；只有预算内的小文件才完整读取。
             saved = self.metadata(session_id, result["artifact_id"])

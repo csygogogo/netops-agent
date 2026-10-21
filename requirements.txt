@@ -1,5 +1,5 @@
 openai>=2.0,<3
-mcp>=1.28,<2
+mcp>=1.28,<3
 httpx>=0.28,<1
 fastapi>=0.115,<1
 uvicorn>=0.31,<1
@@ -9,3 +9,9 @@ anyio>=4.5,<5
 async-timeout>=5,<6
 tomli>=2,<3; python_version < "3.11"
 exceptiongroup>=1.2,<2; python_version < "3.11"
+fastmcp>=2.0,<6          # mcp/ 目录 stdio 脚本运行时（mcp_template.py）
+requests>=2.31,<3        # 同上：HTTP 调用
+loguru>=0.7,<1          # 同上：脚本日志
+paramiko>=3.4,<4        # 同上：SSH 通道
+urllib3>=2.0,<3          # 同上：requests 之外的直接引用
+networkx>=3.2,<4        # 同上：图计算

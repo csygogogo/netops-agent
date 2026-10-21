@@ -8,18 +8,21 @@
 
 ## 脚本要求
 
-1. 用 FastMCP 编写（独立包 `from fastmcp import FastMCP`，或官方 SDK 自带的
-   `from mcp.server.fastmcp import FastMCP` 均可），工具用 `@mcp.tool()` 注册，
+1. 用独立 FastMCP 包编写（`from fastmcp import FastMCP`），工具用 `@mcp.tool()` 注册，
    入口直接 `mcp.run()`（默认 stdio 传输，不要传 `transport="http"` 等参数）。
-2. 脚本自身的第三方依赖（如 `fastmcp`、`paramiko`、`networkx`、`loguru`）必须装在
-   后端同一 Python 环境中——这些依赖不写入项目 requirements.txt，由脚本提供方维护。
+   注意：mcp 2.x 已移除官方 SDK 内置的 `mcp.server.fastmcp`，后端已兼容 mcp 1.x/2.x，
+   但脚本请统一使用独立 fastmcp 包。
+2. 脚本常见的第三方依赖（`fastmcp`、`requests`、`paramiko`、`networkx`、`loguru` 等）
+   已写入 requirements.txt，`pip install -r requirements.txt` 即可；脚本新增其他依赖时
+   自行补充到后端环境。
 3. 启动解释器默认是后端当前 Python，可在 `config.toml` 的 `[mcp].python_path` 指定。
-4. 客户端容忍脚本在 stdout 的少量杂散输出（如调试 `print`），但请避免高频打印。
+4. stdio 模式下 stdout 是 JSON-RPC 协议通道：脚本里禁止任何 `print` 输出，
+   调试信息一律写文件日志（如 loguru）。客户端虽能容忍少量杂散行，但会报解析错误。
 
 ## 示例骨架
 
 ```python
-from mcp.server.fastmcp import FastMCP   # 或 from fastmcp import FastMCP
+from fastmcp import FastMCP   # 独立 fastmcp 包；stdio 模式下禁止任何 print 输出
 
 mcp = FastMCP("demo-stdio")
 

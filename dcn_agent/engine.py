@@ -291,10 +291,9 @@ class Agent:
                     result = await self.tools.call(action["name"], action["arguments"], state.session_id, state.loaded, state.run_id)
             except Exception as exc:
                 result = {"ok": False, "error": clip(f"{type(exc).__name__}: {exc}", 2000)}
-            # 技能正文按页返回且已限长，给足预算避免一页再被切成预览片段。
-            budget = self.settings.agent.tool_result_tokens
-            if action["name"] in {"skill.load", "skill.read"}:
-                budget = max(budget, self.settings.skills.load_result_chars + 512)
+            # 分页读取类工具的返回已按页限长，整页进入上下文，不再二次截断成预览。
+            paged = action["name"] in {"skill.load", "skill.read", "artifact.read", "artifact.search"}
+            budget = None if paged else self.settings.agent.tool_result_tokens
             packed = await asyncio.to_thread(self.artifacts.pack, state.session_id, state.run_id,
                 action["name"], result, state.goal, budget)
             ok = result.get("ok", True) if isinstance(result, dict) else True

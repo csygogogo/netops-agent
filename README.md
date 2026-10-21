@@ -135,7 +135,7 @@ python demo/demo_mcp_server.py        # 单独启动模拟 MCP（配合 run_serv
 | `model.transport` | `ollama` 走原生 `/api/chat`（num_ctx 生效）；`openai` 走 `/v1` 兼容接口 | `ollama` |
 | `model.base_url` / `model.model` | 模型服务地址、模型名称 | 本机 Ollama / `qwen2.5:3b` |
 | `mcp.servers.<name>.url` | MCP 服务地址，名称用于 `mcp.call` 的 server 参数 | 无 |
-| `mcp.servers.<name>.allowed_tools` | 工具白名单；空列表允许全部 | `[]` |
+| `mcp.servers.<name>.allowed_tools` | 工具白名单；不配置或空列表 = 放行全部工具 | 未配置 |
 | `skills.python_path` | 技能脚本解释器；空值使用后端当前 Python | `""` |
 | `topology.*` | 前端拓扑使用的 MCP 服务名与三个查询工具名 | demo 工具名 |
 

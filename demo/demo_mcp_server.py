@@ -7,15 +7,14 @@ import sys
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP  # 外部 fastmcp 包；mcp 2.x 已移除 SDK 内置 FastMCP
 from dcn_agent.config import load_settings
 
 # 监听地址与客户端共用 demo 服务 URL，端口和路径只配置一次。
 endpoint = urlsplit(load_settings().mcp.servers["demo"].url)
 if endpoint.scheme != "http" or not endpoint.hostname or endpoint.query or endpoint.fragment:
     raise ValueError("本机模拟 MCP 地址必须为 http://主机:端口/路径")
-server = FastMCP("DCN Demo", host=endpoint.hostname, port=endpoint.port or 80,
-                 streamable_http_path=endpoint.path or "/mcp", json_response=True)
+server = FastMCP("DCN Demo")  # 监听地址在 run 时传入（外部 fastmcp 4.x 约定）
 FABRICS = [
     {"fabricId": "fabric-a", "nativeId": "native-a", "fabricName": "DEMO · 多 Pod 业务网"},
     {"fabricId": "fabric-b", "nativeId": "native-b", "fabricName": "DEMO · 独立验证网"},
@@ -191,4 +190,5 @@ def get_service_status(case_id: str) -> dict:
 
 
 if __name__ == "__main__":
-    server.run(transport="streamable-http")
+    server.run(transport="http", host=endpoint.hostname, port=endpoint.port or 80,
+               path=endpoint.path or "/mcp", json_response=True)

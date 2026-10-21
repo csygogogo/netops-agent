@@ -5,9 +5,10 @@ base_url = "http://10.137.16.118:8012/v1"
 api_key_env = "OLLAMA_API_KEY"
 model = "qwen3.6-rl"
 timeout_seconds = 120
-# 按部署模型实际上下文窗口填写；本地估算已按中文字符加权（约 1 token/汉字），
-# 不再按 UTF-8 字节数高估，窗口够大时单轮排障不会中途触发压缩。
-context_window_tokens = 16384
+# 按部署模型服务端实际窗口（vLLM 的 max-model-len）填写；本地估算已按中文
+# 字符加权（约 1 token/汉字）。窗口设得够大时，单轮排障不会中途触发压缩，
+# 压缩只在多轮会话或超长结果累积时作为兜底生效。若服务端报上下文超限则调小。
+context_window_tokens = 32768
 max_output_tokens = 1536
 safety_margin_tokens = 1024
 compression_trigger_ratio = 0.80
@@ -23,7 +24,9 @@ max_run_seconds = 600
 decision_retries = 2
 max_identical_calls = 3
 tool_timeout_seconds = 60
-tool_result_tokens = 1800
+# mcp.call/skill.run 结果进入上下文的预算（token）；超出部分存为 artifact，
+# 模型用 artifact.search/read 分页读取（分页结果整页返回，不再二次截断）。
+tool_result_tokens = 4000
 max_input_chars = 12000
 heartbeat_seconds = 10
 
@@ -55,15 +58,16 @@ api_token_env = "DCN_API_TOKEN"
 
 # 可配置多个 Streamable HTTP 服务。名称用于 mcp.call 的 server 参数。
 # 未配置时可通过 MCP_SERVER_URL / MCP_API_TOKEN 环境变量接入名为 default 的服务。
+# 显式配置默认放行该服务全部工具；需要白名单时再加 allowed_tools = ["工具名"]。
 # [mcp.servers.dcn]
 # url = "http://localhost:8000/mcp"
 # token_env = "MCP_API_TOKEN"
-# allowed_tools = []  # 空列表允许该服务的所有工具
 
 [mcp]
 # stdio 子进程 MCP 目录：其中每个 *.py 按文件名注册为同名服务
-# （如 mcp/nce_api.py → mcp.call 的 server "nce_api"），无需再写配置。
-# 脚本需用 FastMCP 等编写、以 stdio 传输运行（mcp.run()），依赖装在后端环境。
+# （如 mcp/mcp_template.py → mcp.call 的 server "mcp_template"），无需再写配置。
+# 脚本需用 FastMCP 等编写、以 stdio 传输运行（mcp.run()），依赖装在后端环境
+# （见 requirements.txt）。每次调用启动一个脚本子进程会话，属 stdio 正常行为。
 directory = "mcp"
 # 启动 stdio 脚本的解释器；留空使用后端当前 Python。
 python_path = ""
@@ -76,12 +80,8 @@ backend_url = "http://0.0.0.0:8520"
 
 # 前端拓扑只调用这里配置的三个查询工具，替换真实服务时修改名称即可。
 [topology]
-server = "dcn"
-fabric_tool = "list_fabrics"
-device_tool = "query_devices"
-topology_tool = "query_fabric_topology"
+server = "mcp_template"
+fabric_tool = "queryFabricList"
+device_tool = "queryDeviceList"
+topology_tool = "queryDeviceLink"
 device_page_size = 1000
-
-[mcp.servers.dcn]
-url = "http://127.0.0.1:12800/mcp"
-allowed_tools = []

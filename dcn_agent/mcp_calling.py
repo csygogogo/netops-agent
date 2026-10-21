@@ -11,7 +11,6 @@ import os
 import sys
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
-from datetime import timedelta
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -24,6 +23,10 @@ except ImportError:
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 from mcp.client.stdio import stdio_client
+try:  # mcp 2.x 分页参数对象；1.x 没有，使用 cursor 关键字
+    from mcp.types import PaginatedRequestParams
+except ImportError:
+    PaginatedRequestParams = None
 
 
 def _settings(url: str | None, headers: Mapping[str, str] | None, timeout: float):
@@ -48,8 +51,10 @@ def _settings(url: str | None, headers: Mapping[str, str] | None, timeout: float
 async def _session(url: str, headers: httpx.Headers, timeout: float) -> AsyncIterator[ClientSession]:
     """建立并初始化 MCP 会话，退出时释放 HTTP 连接。"""
     async with httpx.AsyncClient(headers=headers, timeout=httpx.Timeout(timeout)) as http:
-        async with streamable_http_client(url, http_client=http) as (read, write, _):
-            async with ClientSession(read, write, read_timeout_seconds=timedelta(seconds=timeout)) as session:
+        async with streamable_http_client(url, http_client=http) as streams:
+            # mcp 1.x 返回 (read, write, get_session_id)，2.x 返回 (read, write)；按下标取前两个。
+            read, write = streams[0], streams[1]
+            async with ClientSession(read, write, read_timeout_seconds=timeout) as session:
                 async with async_timeout(timeout):
                     await session.initialize()
                 yield session
@@ -63,10 +68,27 @@ async def _stdio_session(script: str, python: str | None, timeout: float) -> Asy
     """
     params = StdioServerParameters(command=python or sys.executable, args=[script])
     async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write, read_timeout_seconds=timedelta(seconds=timeout)) as session:
+        async with ClientSession(read, write, read_timeout_seconds=timeout) as session:
             async with async_timeout(timeout):
                 await session.initialize()
             yield session
+
+
+async def _list_all_tools(session: ClientSession, timeout: float) -> list[dict[str, Any]]:
+    """分页列出全部工具；兼容 mcp 1.x（cursor 参数）与 2.x（params 对象）。"""
+    tools: list[dict[str, Any]] = []
+    cursor = None
+    while True:
+        async with async_timeout(timeout):
+            if PaginatedRequestParams is None:
+                page = await session.list_tools(cursor=cursor)
+            else:
+                page = await session.list_tools(
+                    params=None if cursor is None else PaginatedRequestParams(cursor=cursor))
+        tools.extend(tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in page.tools)
+        cursor = getattr(page, "next_cursor", None) or getattr(page, "nextCursor", None)  # 2.x/1.x 属性名不同
+        if not cursor:
+            return tools
 
 
 def _error_text(error: Exception) -> str:
@@ -165,10 +187,14 @@ async def _dispatch(session: ClientSession, normalized: list[dict], timeout: flo
                     content = [block.model_dump(mode="json", by_alias=True, exclude_none=True)
                                for block in result.content]
                     text = "\n".join(block["text"] for block in content if block.get("type") == "text")
+                    # mcp 1.x 属性为 camelCase（isError），2.x 为 snake_case（is_error）。
+                    is_error = getattr(result, "isError", getattr(result, "is_error", False))
+                    data = getattr(result, "structuredContent",
+                                   getattr(result, "structured_content", None))
                     results[index] = {
-                        "name": call["name"], "ok": not result.isError,
-                        "text": text, "data": result.structuredContent, "content": content,
-                        "error": (text or "MCP 工具返回 isError=True") if result.isError else None,
+                        "name": call["name"], "ok": not is_error,
+                        "text": text, "data": data, "content": content,
+                        "error": (text or "MCP 工具返回 isError=True") if is_error else None,
                     }
                 except Exception as exc:
                     results[index] = failure(index, _error_text(exc))
@@ -191,34 +217,16 @@ async def list_mcp_tools(
 ) -> list[dict[str, Any]]:
     """返回工具名称、描述和 inputSchema；连接错误直接抛出。"""
     url, auth_headers = _settings(server_url, headers, timeout)
-    tools = []
     async with _session(url, auth_headers, timeout) as session:
-        cursor = None
-        while True:
-            async with async_timeout(timeout):
-                page = await session.list_tools(cursor=cursor)
-            tools.extend(tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in page.tools)
-            cursor = page.nextCursor
-            if not cursor:
-                break
-    return tools
+        return await _list_all_tools(session, timeout)
 
 
 async def list_stdio_tools(
     *, script: str, python: str | None = None, timeout: float = 60.0,
 ) -> list[dict[str, Any]]:
     """列出 stdio 脚本的名称、描述和 inputSchema；连接错误直接抛出。"""
-    tools = []
     async with _stdio_session(script, python, timeout) as session:
-        cursor = None
-        while True:
-            async with async_timeout(timeout):
-                page = await session.list_tools(cursor=cursor)
-            tools.extend(tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in page.tools)
-            cursor = page.nextCursor
-            if not cursor:
-                break
-    return tools
+        return await _list_all_tools(session, timeout)
 
 
 if __name__ == "__main__":

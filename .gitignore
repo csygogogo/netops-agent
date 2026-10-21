@@ -4,3 +4,5 @@ __pycache__/
 data/
 config.local.toml
 .vscode
+mcp/mcp_server.log
+mcp/api_call_stats.json
