@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 from async_timeout import timeout as async_timeout
+import io
 import json
 import math
 import os
 import sys
+import tempfile
 from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
@@ -66,12 +68,23 @@ async def _stdio_session(script: str, python: str | None, timeout: float) -> Asy
 
     客户端容忍脚本在 stdout 的杂散输出（如调试 print），只解析 JSON-RPC 行。
     """
-    params = StdioServerParameters(command=python or sys.executable, args=[script])
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write, read_timeout_seconds=timeout) as session:
-            async with async_timeout(timeout):
-                await session.initialize()
-            yield session
+    # 用真实临时文件收集脚本 stderr（子进程重定向需要文件描述符）；
+    # 脚本崩溃退出时把根因 traceback 带给调用方。
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as errlog:
+        params = StdioServerParameters(command=python or sys.executable, args=[script])
+        try:
+            # errlog 是 stdio_client 的参数（mcp 1.x/2.x 相同）。
+            async with stdio_client(params, errlog=errlog) as (read, write):
+                async with ClientSession(read, write, read_timeout_seconds=timeout) as session:
+                    async with async_timeout(timeout):
+                        await session.initialize()
+                    yield session
+        except Exception as exc:
+            errlog.seek(0)
+            tail = errlog.read()[-4000:].strip()
+            if tail:
+                raise RuntimeError(f"{error_text(exc)}；脚本 stderr 尾部：\n{tail}") from exc
+            raise
 
 
 async def _list_all_tools(session: ClientSession, timeout: float) -> list[dict[str, Any]]:
@@ -91,10 +104,10 @@ async def _list_all_tools(session: ClientSession, timeout: float) -> list[dict[s
             return tools
 
 
-def _error_text(error: Exception) -> str:
+def error_text(error: Exception) -> str:
     """展开嵌套异常，生成便于排查的错误说明。"""
     if isinstance(error, ExceptionGroup):
-        return "; ".join(_error_text(e) for e in error.exceptions)
+        return "; ".join(error_text(e) for e in error.exceptions)
     return f"{type(error).__name__}: {error}"
 
 
@@ -197,7 +210,7 @@ async def _dispatch(session: ClientSession, normalized: list[dict], timeout: flo
                         "error": (text or "MCP 工具返回 isError=True") if is_error else None,
                     }
                 except Exception as exc:
-                    results[index] = failure(index, _error_text(exc))
+                    results[index] = failure(index, error_text(exc))
 
         # TaskGroup 在退出 session 前回收所有调用，外部取消时不会遗留任务。
         async with create_task_group() as group:
@@ -207,7 +220,7 @@ async def _dispatch(session: ClientSession, normalized: list[dict], timeout: flo
         # 保留已收到的结果；仅为没有完成的调用补充连接错误。
         for index, result in enumerate(results):
             if result is None:
-                results[index] = failure(index, _error_text(exc))
+                results[index] = failure(index, error_text(exc))
     return results
 
 

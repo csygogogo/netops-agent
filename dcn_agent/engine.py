@@ -17,6 +17,7 @@ from .artifacts import Artifacts
 from .budget import clip, message_tokens, tokens
 from .context import Context
 from .events import Protocol
+from .mcp_calling import error_text
 from .model import Model
 from .prompts import Prompts
 from .skills import Skills
@@ -290,7 +291,8 @@ class Agent:
                 async with async_timeout(timeout):
                     result = await self.tools.call(action["name"], action["arguments"], state.session_id, state.loaded, state.run_id)
             except Exception as exc:
-                result = {"ok": False, "error": clip(f"{type(exc).__name__}: {exc}", 2000)}
+                # 展开 anyio 等包装的异常组，直接显示根因而不是笼统的 ExceptionGroup。
+                result = {"ok": False, "error": clip(error_text(exc), 2000)}
             # 分页读取类工具的返回已按页限长，整页进入上下文，不再二次截断成预览。
             paged = action["name"] in {"skill.load", "skill.read", "artifact.read", "artifact.search"}
             budget = None if paged else self.settings.agent.tool_result_tokens
@@ -334,7 +336,7 @@ class Agent:
             raise
         except Exception as exc:
             state.status = "timeout" if isinstance(exc, TimeoutError) else "error"
-            for payload in self.event(state, "error", {"code": state.status, "message": clip(f"{type(exc).__name__}: {exc}", 2000)}):
+            for payload in self.event(state, "error", {"code": state.status, "message": clip(error_text(exc), 2000)}):
                 yield payload
         finally:
             if state.status == "running":

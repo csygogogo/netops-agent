@@ -6,7 +6,7 @@ import os
 from jsonschema import Draft202012Validator
 from referencing import Registry
 
-from .mcp_calling import list_mcp_tools, list_stdio_tools, multi_mcp_calling, multi_stdio_calling
+from .mcp_calling import error_text, list_mcp_tools, list_stdio_tools, multi_mcp_calling, multi_stdio_calling
 from .storage import encode
 
 
@@ -126,23 +126,30 @@ class Tools:
         if name == "mcp.call":
             server, tool = arguments["server"], arguments["name"]
             config, headers = self._server(server)
-            available = self.cache.get(server)
-            if available is None:
-                available = await self._discover(server)
-            definition = next((t for t in available if t["name"] == tool), None)
-            if definition is None:
-                return {"ok": False, "error": "工具不存在或不在 allowed_tools 中；请根据真实目录调用",
-                        "available_tools": available[:5], "total": len(available),
-                        "hint": "调用 mcp.list_tools 可按 query 筛选或 offset 翻页"}
-            # 禁止 schema 自动读取外部引用 URL。
-            Draft202012Validator(definition["inputSchema"], registry=Registry()).validate(arguments["arguments"])
-            if config.command:
-                result = await multi_stdio_calling([{"name": tool, "param": arguments["arguments"]}],
-                    script=config.command[1], python=config.command[0],
-                    timeout=self.settings.agent.tool_timeout_seconds)
-            else:
-                result = await multi_mcp_calling([{"name": tool, "param": arguments["arguments"]}],
-                    server_url=config.url, headers=headers, timeout=self.settings.agent.tool_timeout_seconds)
+            try:
+                available = self.cache.get(server)
+                if available is None:
+                    available = await self._discover(server)
+                definition = next((t for t in available if t["name"] == tool), None)
+                if definition is None:
+                    return {"ok": False, "error": "工具不存在或不在 allowed_tools 中；请根据真实目录调用",
+                            "available_tools": available[:5], "total": len(available),
+                            "hint": "调用 mcp.list_tools 可按 query 筛选或 offset 翻页"}
+                # 禁止 schema 自动读取外部引用 URL。
+                Draft202012Validator(definition["inputSchema"], registry=Registry()).validate(arguments["arguments"])
+                if config.command:
+                    result = await multi_stdio_calling([{"name": tool, "param": arguments["arguments"]}],
+                        script=config.command[1], python=config.command[0],
+                        timeout=self.settings.agent.tool_timeout_seconds)
+                else:
+                    result = await multi_mcp_calling([{"name": tool, "param": arguments["arguments"]}],
+                        server_url=config.url, headers=headers, timeout=self.settings.agent.tool_timeout_seconds)
+            except Exception as exc:
+                # 会话建立/初始化失败时展开异常组给出根因，不向上抛出笼统的 ExceptionGroup。
+                hint = (f"；stdio 脚本启动或初始化失败，可在服务器上运行 "
+                        f"python -B -m dcn_agent.mcp_calling --script {config.command[1]} 查看原因"
+                        if config.command else f"；无法连接 MCP 服务 {config.url}")
+                return {"ok": False, "error": error_text(exc) + hint}
             return result[0]
         if name == "artifact.search":
             return await asyncio.to_thread(self.artifacts.search, session_id=session_id, **arguments)
