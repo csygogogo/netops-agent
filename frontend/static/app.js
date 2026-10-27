@@ -3,6 +3,17 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const SVG_NS = "http://www.w3.org/2000/svg";
 const agentRunStates = new WeakMap();
 
+function randomUUID() {
+  // crypto.randomUUID 仅在安全上下文（HTTPS/localhost）存在；HTTP 局域网访问时用
+  // getRandomValues 降级生成 UUID v4（会话标识用途足够），避免页面加载即崩溃。
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 const state = {
   diagnosing: false,
   features: {
@@ -28,7 +39,7 @@ const state = {
   deepDiagnosisTopology: null,
   diagnosisRailWidth: 330,
   // 初始会话 ID 必须每浏览器唯一：所有页面共用固定 ID 会让不同界面落进同一会话，产生"跨页面记忆"。
-  currentConversationId: `dcn-${crypto.randomUUID()}`,
+  currentConversationId: `dcn-${randomUUID()}`,
   currentConversationTitled: true,
   currentDiagnosisTopology: null,
   currentDiagnosisTopologyPayload: null,
@@ -321,7 +332,7 @@ function bindRecentConversation(button) {
 
 function createRecentConversation() {
   const section = $("#recentSection");
-  const conversationId = `dcn-${crypto.randomUUID()}`;
+  const conversationId = `dcn-${randomUUID()}`;
 
   const button = document.createElement("button");
   button.className = "recent-item active";
