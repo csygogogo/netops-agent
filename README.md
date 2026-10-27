@@ -95,11 +95,20 @@ DCN_Agent/
   返回 204 → 按以下优先级订阅事件，收到 `session.idle` 结束：
   1. `GET /session/{session_id}/event`（**推荐**：会话隔离 + 先回放已产生的事件再实时推送，
      "先提交后订阅"的时序也不丢开头事件；404 时降级下一档）
-  2. `GET /event?session_id=<id>`（全局流按会话过滤；订阅晚于事件产生会丢开头事件）
+  2. `GET /event?session_id=<id>`（全局流按会话过滤；后端在提交后最多等 5 秒让首个订阅者建立，
+     事件不早于订阅产生，"先提交后订阅"的评测时序不会丢开头事件）
   3. `GET /session/{session_id}/events?after=<seq>`（JSON 轮询兜底：中间层不支持 SSE 流式时用，
      循环以 `after=last_seq` 拉取直到 `done=true`）
 - **同步流式（本项目前端与命令行）**：`POST /v1/chat/stream`（body 含 `message` 和
   `session_id`），响应即 SSE。
+
+### 评测接入部署提示
+
+评测系统的 `agent_url` 请配置为 Agent 直连地址（`http://<服务器>:8520`）或前端代理地址
+（`http://<服务器>:8631`，前端已逐块透传 SSE）。若中间还有反向代理/微服务网关，
+必须对 `/event` 等 SSE 端点做流式透传（禁用响应缓冲）；快速判断：在评测同网络环境执行
+`curl -N http://<agent_url>/event`，应立即看到 `server.connected` 事件持续输出，
+否则是中间层缓冲，与 Agent 无关。
 
 ### 会话记忆隔离（评测必读）
 

@@ -67,13 +67,20 @@ class EventBus:
             if wanted is None or session == wanted:
                 queue.put_nowait(payload)
 
+    def has_subscribers(self) -> bool:
+        """是否已有 /event 订阅者；用于提交后等待订阅建立再开始执行。"""
+        return bool(self.subscribers)
+
 
 async def run_prompt(agent: Agent, state, bus: EventBus, running: dict):
     """后台执行一轮并发布事件到总线；提交方断开不影响执行。"""
     published = 0
     try:
-        # 稍等评测类客户端在提交后订阅 /event，避免其错过开头事件。
-        await asyncio.sleep(0.5)
+        # 评测类客户端是"先 prompt_async 后订阅 /event"：等到至少一个订阅者
+        # 到达再开始执行，保证事件不早于订阅产生（最多等 5 秒后自动开始兜底）。
+        deadline = asyncio.get_running_loop().time() + 5
+        while not bus.has_subscribers() and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.1)
         async with aclosing(agent.stream(state)) as stream:
             async for event in stream:
                 published += 1
