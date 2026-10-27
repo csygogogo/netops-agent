@@ -92,8 +92,12 @@ DCN_Agent/
 
 - **异步模式（opencode 客户端/评测系统）**：`POST /session` 获取 UUID（返回 `id` 字段）→
   `POST /session/{session_id}/prompt_async` 提交 `{"parts":[{"type":"text","text":"..."}]}`，
-  返回 204 → `GET /event?session_id=<id>` 订阅该会话的 SSE 事件流，收到 `session.idle` 结束
-  （不带参数仍是全局流；并发评测务必带 `session_id`，否则会收到其他会话的事件）。
+  返回 204 → 按以下优先级订阅事件，收到 `session.idle` 结束：
+  1. `GET /session/{session_id}/event`（**推荐**：会话隔离 + 先回放已产生的事件再实时推送，
+     "先提交后订阅"的时序也不丢开头事件；404 时降级下一档）
+  2. `GET /event?session_id=<id>`（全局流按会话过滤；订阅晚于事件产生会丢开头事件）
+  3. `GET /session/{session_id}/events?after=<seq>`（JSON 轮询兜底：中间层不支持 SSE 流式时用，
+     循环以 `after=last_seq` 拉取直到 `done=true`）
 - **同步流式（本项目前端与命令行）**：`POST /v1/chat/stream`（body 含 `message` 和
   `session_id`），响应即 SSE。
 

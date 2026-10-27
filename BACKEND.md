@@ -386,6 +386,8 @@ MCP SDK 在接收时仍会将单次结果缓存在内存；该机制限制的是
 | POST /session | 生成随机 UUID 会话 ID 并预创建会话，返回 id 与 session_id |
 | POST /session/{session_id}/prompt_async | 异步提交：body 为 parts 文本分段，返回 204，事件走 /event |
 | GET /event | SSE 事件流；`?session_id=<id>` 只推送该会话事件（并发评测必须带），不带参数为全局流 |
+| GET /session/{session_id}/event | 会话隔离 SSE 流：先回放该会话最近一轮已产生的事件再实时推送（按事件 id 去重），晚订阅不丢开头事件；经网关访问时优先用本端点 |
+| GET /session/{session_id}/events?after= | JSON 轮询会话最近一轮事件（`{events,last_seq,done}`），SSE 被中间层缓冲时兜底 |
 | POST /v1/session、POST /v1/chat/stream | 同步流式入口（前端使用）；/v1/session 为旧路径兼容 |
 | GET /v1/sessions/{id} | 查看会话摘要、提示词和激活技能 |
 | GET /v1/sessions/{id}/messages | 完整用户/助手消息，after/limit 分页 |

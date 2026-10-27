@@ -165,6 +165,16 @@ class Store:
             db.execute("INSERT INTO events VALUES(?,?,?)", (run_id, seq, encode(payload)))
         self.log(session_id, {"run_id": run_id, "seq": seq, "payload": payload})
 
+    def latest_run(self, session_id: str, user_id: str) -> dict | None:
+        """读取会话最近一轮运行，供会话事件回放与轮询接口使用。"""
+        self.session(session_id, user_id)
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT r.* FROM runs r JOIN sessions s ON r.session_id=s.id "
+                "WHERE r.session_id=? AND s.user_id=? ORDER BY r.started_at DESC LIMIT 1",
+                (session_id, user_id)).fetchone()
+        return dict(row) if row else None
+
     def run(self, run_id: str, user_id: str):
         """检查用户归属并读取运行状态。"""
         with self.connect() as db:

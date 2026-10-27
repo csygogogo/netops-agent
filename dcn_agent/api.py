@@ -315,6 +315,56 @@ def create_app(settings=None, model=None) -> FastAPI:
         return StreamingResponse(generate(), media_type="text/event-stream", headers={
             "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    @app.get("/session/{session_id}/event")
+    async def session_event_stream(session_id: str, user_id: str = Depends(user)):
+        """会话隔离的 SSE 事件流：只推送该会话事件，晚订阅也不丢开头事件。
+
+        与全局 /event 的区别：连接建立时先回放该会话最近一轮已持久化的事件，
+        再进入实时推送（按事件 id 去重），适配评测系统"先 prompt_async 后订阅"的时序。
+        """
+        agent.store.session(session_id, user_id)
+        queue = bus.subscribe(session_id)
+
+        async def generate():
+            replayed: set[str] = set()
+            try:
+                yield "data: " + encode(envelope("server.connected", {})) + "\n\n"
+                run = agent.store.latest_run(session_id, user_id)
+                if run:
+                    for record in agent.store.events(run["id"], user_id, 0, 1000):
+                        replayed.add(record["payload"].get("id", ""))
+                        yield f"data: {encode(record['payload'])}\n\n"
+                while True:
+                    try:
+                        item = await asyncio.wait_for(queue.get(), settings.agent.heartbeat_seconds)
+                    except TimeoutError:
+                        yield "data: " + encode(envelope("server.heartbeat", {})) + "\n\n"
+                        continue
+                    if item.get("id", "") in replayed:
+                        continue
+                    yield f"data: {encode(item)}\n\n"
+            finally:
+                bus.unsubscribe(queue)
+
+        return StreamingResponse(generate(), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @app.get("/session/{session_id}/events")
+    async def session_events(session_id: str, after: int = Query(0, ge=0),
+                             limit: int = Query(1000, ge=1, le=1000),
+                             user_id: str = Depends(user)):
+        """按 seq 轮询会话最近一轮事件（JSON 响应，非 SSE）。
+
+        中间层（网关/代理）不支持 SSE 流式透传时的兜底：客户端循环以
+        after=last_seq 轮询，done=true 表示本轮已结束且事件已齐全。
+        """
+        run = agent.store.latest_run(session_id, user_id)
+        if run is None:
+            return {"events": [], "last_seq": after, "done": True, "run_status": "none"}
+        records = agent.store.events(run["id"], user_id, after, limit)
+        return {"events": records, "last_seq": records[-1]["seq"] if records else after,
+                "done": run["status"] != "running", "run_status": run["status"]}
+
     @app.post("/v1/chat/stream", deprecated=True)  # 旧路径兼容，过渡期后可移除
     async def legacy_chat(body: LegacyChatInput, user_id: str = Depends(user)):
         """旧版入口：session_id 在请求体中，内部转发到同一实现。"""
