@@ -7,7 +7,6 @@ import asyncio
 from async_timeout import timeout as async_timeout
 import io
 import json
-from datetime import timedelta
 import math
 import os
 import sys
@@ -57,7 +56,10 @@ async def _session(url: str, headers: httpx.Headers, timeout: float) -> AsyncIte
         async with streamable_http_client(url, http_client=http) as streams:
             # mcp 1.x 返回 (read, write, get_session_id)，2.x 返回 (read, write)；按下标取前两个。
             read, write = streams[0], streams[1]
-            async with _session_with_timeout(read, write, timeout) as session:
+            # 不传 read_timeout_seconds：mcp 1.30 只接受 timedelta、2.x 只接受 float 秒，
+            # 类型冲突无法在构造期探测（1.30 运行时才调 .total_seconds() 报错）；
+            # None 语义两版一致（不启用库内读超时），超时由外层 async_timeout 统一控制。
+            async with ClientSession(read, write) as session:
                 async with async_timeout(timeout):
                     await session.initialize()
                 yield session
@@ -76,7 +78,8 @@ async def _stdio_session(script: str, python: str | None, timeout: float) -> Asy
         try:
             # errlog 是 stdio_client 的参数（mcp 1.x/2.x 相同）。
             async with stdio_client(params, errlog=errlog) as (read, write):
-                async with _session_with_timeout(read, write, timeout) as session:
+                # read_timeout_seconds 不传的原因见 _session 内注释。
+                async with ClientSession(read, write) as session:
                     async with async_timeout(timeout):
                         await session.initialize()
                     yield session
@@ -103,15 +106,6 @@ async def _list_all_tools(session: ClientSession, timeout: float) -> list[dict[s
         cursor = getattr(page, "next_cursor", None) or getattr(page, "nextCursor", None)  # 2.x/1.x 属性名不同
         if not cursor:
             return tools
-
-
-def _session_with_timeout(read, write, timeout: float) -> ClientSession:
-    """构造 ClientSession：read_timeout_seconds 传 float 秒在 mcp 1.x/2.x 均合法，
-    个别旧版本只接受 timedelta，构造报错时自动回退，保证跨版本可运行。"""
-    try:
-        return ClientSession(read, write, read_timeout_seconds=timeout)
-    except TypeError:
-        return ClientSession(read, write, read_timeout_seconds=timedelta(seconds=timeout))
 
 
 def error_text(error: Exception) -> str:
