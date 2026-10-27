@@ -93,6 +93,8 @@ flowchart TD
 规划由模型根据任务复杂度决定；不是所有问题都强制生成计划。
 
 `config.toml` 的 `[agent]` 下，`allow_clarification = true` 允许缺少必要信息时请求用户补充；设为 `false` 则移除该决策分支，围绕本轮原始问题继续执行，最终回答也不再追问。默认开启，修改后重启服务生效。
+
+`isolation` 控制会话记忆：`"session"`（默认）按 session_id 延续多轮历史；`"request"` 每次请求从全新上下文开始，不读取也不写回历史/摘要/技能/偏好（评测平台复用同一 session_id 时保证 case 间零记忆，消息与事件仍存档）。
 关闭后如果仍无法获得必要参数，会完成可执行部分并说明限制，不编造参数；原有步数、超时等执行限制仍有效。
 控制决策使用同一份 JSON Schema 约束生成并校验，模型输出不会直接作为 Python 或 shell 代码执行。
 工具参数还会单独经过本地 schema / MCP 服务输入 schema 校验。
@@ -383,7 +385,7 @@ MCP SDK 在接收时仍会将单次结果缓存在内存；该机制限制的是
 | --- | --- |
 | POST /session | 生成随机 UUID 会话 ID 并预创建会话，返回 id 与 session_id |
 | POST /session/{session_id}/prompt_async | 异步提交：body 为 parts 文本分段，返回 204，事件走 /event |
-| GET /event | 全局 SSE 事件流（opencode 客户端/评测系统订阅） |
+| GET /event | SSE 事件流；`?session_id=<id>` 只推送该会话事件（并发评测必须带），不带参数为全局流 |
 | POST /v1/session、POST /v1/chat/stream | 同步流式入口（前端使用）；/v1/session 为旧路径兼容 |
 | GET /v1/sessions/{id} | 查看会话摘要、提示词和激活技能 |
 | GET /v1/sessions/{id}/messages | 完整用户/助手消息，after/limit 分页 |

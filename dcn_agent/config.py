@@ -58,6 +58,8 @@ def load_settings(path=None):
         settings.frontend.backend_url = server_url(settings.server.host, settings.server.port)
     if not isinstance(settings.agent.allow_clarification, bool):
         raise ValueError("agent.allow_clarification 必须为 true 或 false")
+    if settings.agent.isolation not in {"session", "request"}:
+        raise ValueError("agent.isolation 应为 session（按会话延续历史）或 request（每请求全新，评测隔离）")
     model = settings.model
     # 配置加载后计算输入预算，无需单独定义配置类。
     model.input_budget = model.context_window_tokens - model.max_output_tokens - model.safety_margin_tokens

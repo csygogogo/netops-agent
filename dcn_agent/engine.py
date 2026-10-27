@@ -140,6 +140,10 @@ class Agent:
         created_ms = int(datetime.fromisoformat(session["created_at"]).timestamp() * 1000)
         protocol = Protocol(session["id"], run_id, message, self.settings.model.model,
                             self.settings.model.transport, created_ms)
+        if self.settings.agent.isolation == "request":
+            # 评测隔离模式：不读取任何跨请求状态（历史/摘要/技能/偏好），
+            # 即使调用方复用同一 session_id，每个请求也从全新上下文开始。
+            return RunState(session["id"], run_id, user_id, message, [], "", [], "", "", protocol)
         return RunState(session["id"], run_id, user_id, message, session["context"], session["summary"],
                         session["loaded_skills"], self.store.user_prompt(user_id), session["prompt"], protocol)
 
@@ -152,7 +156,9 @@ class Agent:
         return payloads
 
     def checkpoint(self, state):
-        """保存工作上下文，让后续轮次可继续使用。"""
+        """保存工作上下文，让后续轮次可继续使用；评测隔离模式不写回。"""
+        if self.settings.agent.isolation == "request":
+            return
         self.store.save_context(state.session_id, state.history, state.summary, state.loaded)
 
     async def prepare(self, state: RunState, phase: str, extra: str = ""):

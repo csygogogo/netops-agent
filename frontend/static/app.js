@@ -27,7 +27,8 @@ const state = {
   deepTopologyPanY: 0,
   deepDiagnosisTopology: null,
   diagnosisRailWidth: 330,
-  currentConversationId: "initial-conversation",
+  // 初始会话 ID 必须每浏览器唯一：所有页面共用固定 ID 会让不同界面落进同一会话，产生"跨页面记忆"。
+  currentConversationId: `dcn-${crypto.randomUUID()}`,
   currentConversationTitled: true,
   currentDiagnosisTopology: null,
   currentDiagnosisTopologyPayload: null,

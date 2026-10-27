@@ -42,25 +42,30 @@ class AsyncPromptInput(BaseModel):
 
 
 class EventBus:
-    """进程内事件广播：后台运行任务发布，GET /event 的订阅者各自持有队列。"""
+    """进程内事件广播：后台运行任务发布，GET /event 的订阅者各自持有队列。
+
+    订阅时可指定 session_id 只接收该会话的事件，避免并发评测时串流。
+    """
 
     def __init__(self):
-        self.subscribers: set[asyncio.Queue] = set()
+        self.subscribers: dict[asyncio.Queue, str | None] = {}
 
-    def subscribe(self) -> asyncio.Queue:
-        """新订阅者加入广播列表，返回自己的事件队列。"""
+    def subscribe(self, session_id: str = "") -> asyncio.Queue:
+        """新订阅者加入广播列表；session_id 非空时只投递该会话的事件。"""
         queue: asyncio.Queue = asyncio.Queue()
-        self.subscribers.add(queue)
+        self.subscribers[queue] = f"ses_{session_id}" if session_id else None
         return queue
 
     def unsubscribe(self, queue: asyncio.Queue):
         """连接断开时移除队列，后续事件不再堆积。"""
-        self.subscribers.discard(queue)
+        self.subscribers.pop(queue, None)
 
     def publish(self, payload: dict):
-        """向所有订阅者广播一条协议事件。"""
-        for queue in self.subscribers:
-            queue.put_nowait(payload)
+        """向订阅者广播一条协议事件；带过滤的订阅者只收到自己会话的事件。"""
+        session = payload.get("properties", {}).get("sessionID")
+        for queue, wanted in list(self.subscribers.items()):
+            if wanted is None or session == wanted:
+                queue.put_nowait(payload)
 
 
 async def run_prompt(agent: Agent, state, bus: EventBus, running: dict):
@@ -288,9 +293,12 @@ def create_app(settings=None, model=None) -> FastAPI:
         return Response(status_code=204)
 
     @app.get("/event")
-    async def event_stream():
-        """全局 SSE 事件流：先发 server.connected，空闲时发 server.heartbeat。"""
-        queue = bus.subscribe()
+    async def event_stream(session_id: str = ""):
+        """全局 SSE 事件流：先发 server.connected，空闲时发 server.heartbeat。
+
+        传 session_id 时只推送该会话的事件，评测平台并发跑多个会话时互不串流。
+        """
+        queue = bus.subscribe(session_id)
 
         async def generate():
             try:

@@ -92,9 +92,19 @@ DCN_Agent/
 
 - **异步模式（opencode 客户端/评测系统）**：`POST /session` 获取 UUID（返回 `id` 字段）→
   `POST /session/{session_id}/prompt_async` 提交 `{"parts":[{"type":"text","text":"..."}]}`，
-  返回 204 → `GET /event` 订阅全局 SSE 事件流，收到 `session.idle` 结束。
+  返回 204 → `GET /event?session_id=<id>` 订阅该会话的 SSE 事件流，收到 `session.idle` 结束
+  （不带参数仍是全局流；并发评测务必带 `session_id`，否则会收到其他会话的事件）。
 - **同步流式（本项目前端与命令行）**：`POST /v1/chat/stream`（body 含 `message` 和
   `session_id`），响应即 SSE。
+
+### 会话记忆隔离（评测必读）
+
+会话历史（上下文/摘要/技能/偏好）严格按 `session_id` 隔离：**每个评测 case 必须使用独立的
+session_id**（每个 case 调一次 `POST /session`），不同 case 之间就完全没有记忆。
+
+若评测平台会复用同一个 session_id，把 `config.toml` 的 `agent.isolation` 改为 `"request"`：
+每次请求都从全新上下文开始，不读取也不写回任何历史，即使 session_id 相同也零记忆
+（消息与事件仍按会话存档，可事后回查）。默认 `"session"` 为多轮对话模式。
 
 事件协议与字段表见 [后端手册](BACKEND.md)。
 

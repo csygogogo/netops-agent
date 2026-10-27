@@ -18,6 +18,11 @@ temperature = 0
 [agent]
 # 是否允许暂停本轮并请求用户补充信息；修改后重启服务。
 allow_clarification = true
+# 会话记忆隔离模式："session" 按 session_id 延续多轮历史（默认，前端多轮对话用）；
+# "request" 每次请求都从全新上下文开始，不读取也不写回任何历史/摘要/技能/偏好
+# （评测平台复用同一 session_id 跑多个 case 时用它保证 case 间零记忆；
+#   消息与事件仍按会话存档，可事后回查）。
+isolation = "session"
 max_steps = 24
 max_run_seconds = 600
 # 决策 JSON 校验失败时的重试次数；仍失败只终止工具决策，不丢弃整轮。
