@@ -24,6 +24,9 @@ def load_settings(path=None):
     path = Path(path or os.getenv("DCN_CONFIG", default_path)).resolve()
     with default_path.open("rb") as stream:
         data = tomllib.load(stream)
+    # 兼容旧版 config.toml：新增配置键补默认值，配置文件未随代码更新也能启动。
+    data.setdefault("agent", {}).setdefault("isolation", "session")
+    data.setdefault("skills", {}).setdefault("load_result_chars", 4000)
     # [mcp] 除显式 servers 外，还支持 directory 指向的 stdio 脚本目录。
     data.setdefault("mcp", {})
     for key, default in (("directory", "mcp"), ("python_path", ""), ("servers", {})):
