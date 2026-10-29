@@ -34,7 +34,7 @@ def main():
     reply = httpx.post(url + f"/session/{session_id}/prompt_async", headers=headers,
                        json={"parts": [{"type": "text", "text": args.message}]}, timeout=30)
     reply.raise_for_status()
-    watch = "ses_" + session_id
+    watch = session_id
     with httpx.stream("GET", url + "/event", headers=headers, timeout=600) as stream:
         stream.raise_for_status()
         for line in stream.iter_lines():

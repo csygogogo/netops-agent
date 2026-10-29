@@ -53,7 +53,7 @@ class EventBus:
     def subscribe(self, session_id: str = "") -> asyncio.Queue:
         """新订阅者加入广播列表；session_id 非空时只投递该会话的事件。"""
         queue: asyncio.Queue = asyncio.Queue()
-        self.subscribers[queue] = f"ses_{session_id}" if session_id else None
+        self.subscribers[queue] = f"{session_id}" if session_id else None
         return queue
 
     def unsubscribe(self, queue: asyncio.Queue):

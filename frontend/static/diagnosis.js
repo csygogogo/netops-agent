@@ -360,7 +360,7 @@ async function sendBackendDiagnosis(question) {
   }
   async function accept(event, seq = 0) {
     const props = event.properties || {};
-    if (props.sessionID !== "ses_" + state.currentConversationId) return;
+    if (props.sessionID !== state.currentConversationId) return;
     if (seq && seq <= lastSeq) return;
     if (seq) lastSeq = seq;
     const follow = isNearChatBottom();

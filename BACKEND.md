@@ -108,7 +108,7 @@ flowchart TD
 
 ```text
 id: 12
-data: {"id":"evt_18f3a2b4c5d6e7f80921a3b4","type":"message.part.updated","properties":{"sessionID":"ses_dcn-001","part":{"id":"prt_...","messageID":"msg_...","sessionID":"ses_dcn-001","type":"tool","tool":"mcp.call","callID":"call_...","state":{"status":"running","input":{"server":"demo","name":"get_interface_status","arguments":{"device":"leaf-01","interface":"Ethernet1/1"}},"metadata":{"step":2},"time":{"start":1790000000000}}}},"time":1790000000001}}
+data: {"id":"evt_18f3a2b4c5d6e7f80921a3b4","type":"message.part.updated","properties":{"sessionID":"dcn-001","part":{"id":"prt_...","messageID":"msg_...","sessionID":"dcn-001","type":"tool","tool":"mcp.call","callID":"call_...","state":{"status":"running","input":{"server":"demo","name":"get_interface_status","arguments":{"device":"leaf-01","interface":"Ethernet1/1"}},"metadata":{"step":2},"time":{"start":1790000000000}}}},"time":1790000000001}}
 
 ```
 

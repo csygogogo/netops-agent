@@ -344,6 +344,14 @@ class Agent:
             state.status = "timeout" if isinstance(exc, TimeoutError) else "error"
             for payload in self.event(state, "error", {"code": state.status, "message": clip(error_text(exc), 2000)}):
                 yield payload
+            # 异常收尾也补发回答终态：最终消息获得 finish 和全文分段，订阅方（评测）
+            # 不悬空——错误说明进入回答内容，按实际错误计分而不是缺失结果。
+            if not state.answer.strip():
+                state.answer = f"[本轮执行失败：{state.status}] " + clip(error_text(exc), 1000)
+            else:
+                state.answer += "\n[本轮未完整完成，不能将部分输出视为执行成功]"
+            for payload in self.event(state, "answer.completed", {"text": state.answer, "status": state.status}):
+                yield payload
         finally:
             if state.status == "running":
                 state.status = "interrupted"

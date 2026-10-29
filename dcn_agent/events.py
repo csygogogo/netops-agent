@@ -38,7 +38,7 @@ class Protocol:
     """一次运行的对外事件转换器，维护消息和分段的编号线索。"""
 
     def __init__(self, session_id: str, run_id: str, goal: str, model_id: str, provider_id: str, created_ms: int):
-        self.session_id = f"ses_{session_id}"
+        self.session_id = f"{session_id}"
         self.run_id = run_id
         self.goal = goal
         self.model = {"id": model_id, "providerID": provider_id, "variant": "default"}
